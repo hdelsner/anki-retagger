@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VPS Anki Retagger</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#f5f5f0;color:#1a1a1a;min-height:100vh}
+:root{
+  --bg1:#fff;--bg2:#f5f5f0;--bg3:#ebebeb;
+  --txt1:#1a1a1a;--txt2:#666;
+  --bdr:rgba(0,0,0,0.12);--bdr2:rgba(0,0,0,0.25);
+  --acc:#534AB7;--accL:#EEEDFE;--accT:#3C3489;
+  --ok:#0F6E56;--okL:#E1F5EE;
+  --warn:#854F0B;--warnL:#FAEEDA;
+  --err:#A32D2D;--errL:#FCEBEB;
+  --rad:8px;--radL:12px
+}
+input,textarea,select,button{font-family:inherit;font-size:14px}
+input[type=text],input[type=password],textarea,select{width:100%;padding:8px 12px;border:0.5px solid var(--bdr2);border-radius:var(--rad);background:var(--bg1);color:var(--txt1);outline:none;transition:border-color .15s}
+input:focus,textarea:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(83,74,183,.15)}
+button{cursor:pointer;border-radius:var(--rad);border:0.5px solid var(--bdr2);background:var(--bg1);color:var(--txt1);padding:8px 16px;transition:background .1s,transform .1s}
+button:hover{background:var(--bg2)}
+button:active{transform:scale(.98)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
+button.pri:hover{background:var(--accT)}
+button.ok{background:var(--ok);color:#fff;border-color:var(--ok)}
+button.err{background:var(--err);color:#fff;border-color:var(--err)}
+.card{background:var(--bg1);border:0.5px solid var(--bdr);border-radius:var(--radL);padding:1.25rem}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:var(--rad);font-size:12px;font-weight:500}
+.b-acc{background:var(--accL);color:var(--accT)}
+.b-ok{background:var(--okL);color:var(--ok)}
+.b-err{background:var(--errL);color:var(--err)}
+.b-warn{background:var(--warnL);color:var(--warn)}
+.b-gray{background:#f1efe8;color:#5f5e5a}
+label{font-size:13px;color:var(--txt2);display:block;margin-bottom:4px}
+.field{margin-bottom:1rem}
+.muted{color:var(--txt2);font-size:13px}
+.tag{display:inline-block;background:var(--accL);color:var(--accT);font-size:11px;padding:2px 8px;border-radius:4px;margin:2px;font-family:monospace}
+.pbar{height:6px;border-radius:3px;background:var(--bg3);overflow:hidden}
+.pfill{height:100%;background:var(--acc);border-radius:3px;transition:width .3s}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
+.dot-gray{background:#b4b2a9}
+.dot-warn{background:#EF9F27}
+.dot-ok{background:#1D9E75}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect} = React;
+const SB_URL='https://kzbingoavnociklavnsa.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6YmluZ29hdm5vY2lrbGF2bnNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0ODUxMTUsImV4cCI6MjA5NjA2MTExNX0.GNdHkBLHamZczIBK-4RbsbwQAIlo3RI1yXPNUq5a_9I';
+const db=window.supabase.createClient(SB_URL,SB_KEY);
+
+const STOP_WORDS=new Set(['a','an','the','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','this','that','these','those','it','its','they','their','them','he','she','we','you','i','my','your','our','his','her','what','which','who','how','when','where','why','all','as','if','so','than','then','there','here','about','into','through','during','before','after','above','below','between','each','other','such','no','not','only','same','also','just','more','most','over','under','again','further','both','few','some','any','each','every']);
+
+function extractKeywords(text){
+  return [...new Set(text.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>3&&!STOP_WORDS.has(w)))];
+}
+
+function App(){
+  const [screen,setScreen]=useState('setup');
+  const [reviewer,setReviewer]=useState('');
+  const [apiKey,setApiKey]=useState('');
+  const [lectures,setLectures]=useState([]);
+  const [cards,setCards]=useState([]);
+  const [completions,setCompletions]=useState({});
+  const [lectureReviewCounts,setLectureReviewCounts]=useState({});
+
+  async function loadAll(){
+    const [{data:lecs},{data:cds},{data:comps},{data:revCounts}]=await Promise.all([
+      db.from('lectures').select('*').order('module').order('name'),
+      db.from('cards').select('*'),
+      db.from('lecture_completions').select('*'),
+      db.from('reviews').select('lecture_id')
+    ]);
+    setLectures(lecs||[]);
+    setCards(cds||[]);
+    const cm={};(comps||[]).forEach(c=>{cm[c.lecture_id]=c});setCompletions(cm);
+    const rc={};(revCounts||[]).forEach(r=>{rc[r.lecture_id]=(rc[r.lecture_id]||0)+1});setLectureReviewCounts(rc);
+  }
+
+  function getLectureStatus(lec){
+    if(completions[lec.id]) return 'complete';
+    if(lectureReviewCounts[lec.id]>0) return 'inprogress';
+    return 'notstarted';
+  }
+
+  if(screen==='setup') return <Setup reviewer={reviewer} setReviewer={setReviewer} apiKey={apiKey} setApiKey={setApiKey} lectures={lectures} setLectures={setLectures} cards={cards} setCards={setCards} onContinue={()=>{loadAll();setScreen('review')}}/>;
+  return <Review reviewer={reviewer} apiKey={apiKey} lectures={lectures} cards={cards} completions={completions} setCompletions={setCompletions} lectureReviewCounts={lectureReviewCounts} setLectureReviewCounts={setLectureReviewCounts} getLectureStatus={getLectureStatus} onBack={()=>setScreen('setup')}/>;
+}
+
+function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards,setCards,onContinue}){
+  const [tab,setTab]=useState('cards');
+  const [cardText,setCardText]=useState('');
+  const [lecName,setLecName]=useState('');
+  const [modName,setModName]=useState('');
+  const [bulkText,setBulkText]=useState('');
+  const [status,setStatus]=useState('');
+  const [loading,setLoading]=useState(false);
+
+  async function importCards(){
+    setLoading(true);setStatus('Parsing...');
+    const lines=cardText.trim().split('\n').filter(l=>l.trim());
+    const parsed=lines.map((line,i)=>{
+      const parts=line.split('\t');
+      return{anki_id:`card_${i}`,front:parts[0]||'',back:parts[1]||'',existing_tags:parts[2]||''};
+    }).filter(c=>c.front);
+    setStatus(`Uploading ${parsed.length} cards...`);
+    for(let i=0;i<parsed.length;i+=100){
+      await db.from('cards').upsert(parsed.slice(i,i+100),{onConflict:'anki_id'});
+    }
+    const{data}=await db.from('cards').select('*');
+    setCards(data||[]);
+    setStatus(`${parsed.length} cards imported.`);
+    setLoading(false);
+  }
+
+  async function addLecture(name,mod){
+    if(!name||!mod) return;
+    const{data,error}=await db.from('lectures').insert({name,module:mod}).select().single();
+    if(!error) setLectures(p=>[...p,data]);
+  }
+
+  async function bulkImport(){
+    const lines=bulkText.trim().split('\n').filter(l=>l.trim());
+    for(const line of lines){
+      const[mod,...rest]=line.split('|').map(s=>s.trim());
+      const name=rest.join('|').trim();
+      if(mod&&name) await addLecture(name,mod);
+    }
+    setBulkText('');
+  }
+
+  return(
+    <div style={{maxWidth:700,margin:'0 auto',padding:'2rem 1rem'}}>
+      <h2 style={{marginBottom:4}}>VPS Anki retagger — setup</h2>
+      <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem'}}>Configure your session before reviewing.</p>
+      <div class="card" style={{marginBottom:'1rem'}}>
+        <h3 style={{marginBottom:'1rem'}}>Your info</h3>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
+          <div class="field" style={{margin:0}}>
+            <label>Your name</label>
+            <input type="text" value={reviewer} onChange={e=>setReviewer(e.target.value)} placeholder="e.g. Henry"/>
+          </div>
+          <div class="field" style={{margin:0}}>
+            <label>Anthropic API key</label>
+            <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-ant-..."/>
+          </div>
+        </div>
+      </div>
+      <div class="card" style={{marginBottom:'1rem'}}>
+        <div style={{display:'flex',gap:'1.5rem',borderBottom:'0.5px solid var(--bdr)',marginBottom:'1rem',paddingBottom:'0.75rem'}}>
+          {['cards','lectures'].map(t=>(
+            <button key={t} onClick={()=>setTab(t)} style={{border:'none',background:'none',padding:'4px 0',fontWeight:tab===t?500:400,color:tab===t?'var(--acc)':'var(--txt2)',borderBottom:tab===t?'2px solid var(--acc)':'none',borderRadius:0}}>
+              {t==='cards'?'Import cards':'Manage lectures'}
+            </button>
+          ))}
+        </div>
+        {tab==='cards'&&<>
+          <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'0.75rem'}}>In Anki: File → Export → Notes in Plain Text. Check "Include tags". Paste the file contents below.</p>
+          <div class="field">
+            <label>Card data (tab-separated: front · back · tags)</label>
+            <textarea value={cardText} onChange={e=>setCardText(e.target.value)} rows={6} placeholder={"What is normal GFR?\tApproximately 120 mL/min\tVPS::Nephrology::GFR\nDefine oliguria\tUrine < 0.5 mL/kg/hr\t"}/>
+          </div>
+          <button class="pri" onClick={importCards} disabled={loading||!cardText.trim()}>
+            <i class="ti ti-upload"/> {loading?status:'Import cards'}
+          </button>
+          {!loading&&status&&<p style={{color:'var(--txt2)',fontSize:13,marginTop:'0.5rem'}}>{status}</p>}
+          {cards.length>0&&<p style={{color:'var(--txt2)',fontSize:13,marginTop:'0.5rem'}}>{cards.length} cards in database</p>}
+        </>}
+        {tab==='lectures'&&<>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:'8px',alignItems:'end',marginBottom:'1rem'}}>
+            <div class="field" style={{margin:0}}>
+              <label>Module</label>
+              <input type="text" value={modName} onChange={e=>setModName(e.target.value)} placeholder="e.g. Nephrology"/>
+            </div>
+            <div class="field" style={{margin:0}}>
+              <label>Lecture name</label>
+              <input type="text" value={lecName} onChange={e=>setLecName(e.target.value)} placeholder="e.g. Starling Forces"/>
+            </div>
+            <button class="pri" onClick={()=>{addLecture(lecName,modName);setLecName('')}} disabled={!lecName||!modName}>
+              <i class="ti ti-plus"/> Add
+            </button>
+          </div>
+          <div class="field">
+            <label>Or bulk import — Module | Lecture name, one per line</label>
+            <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)} rows={4} placeholder={"Nephrology | Starling Forces\nNephrology | AKI\nCardiology | Heart Failure"}/>
+          </div>
+          <button onClick={bulkImport} disabled={!bulkText.trim()}>Import list</button>
+          {lectures.length>0&&<div style={{marginTop:'1rem'}}>
+            <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'0.5rem'}}>{lectures.length} lectures loaded</p>
+            <div style={{maxHeight:100,overflowY:'auto',display:'flex',flexWrap:'wrap',gap:4}}>
+              {lectures.map(l=><span key={l.id} class="tag">{l.module}::{l.name}</span>)}
+            </div>
+          </div>}
+        </>}
+      </div>
+      <button class="pri" onClick={onContinue} disabled={!reviewer} style={{width:'100%',padding:'10px'}}>
+        Go to review <i class="ti ti-arrow-right"/>
+      </button>
+    </div>
+  );
+}
+
+function Review({reviewer,apiKey,lectures,cards,completions,setCompletions,lectureReviewCounts,setLectureReviewCounts,getLectureStatus,onBack}){
+  const [selLec,setSelLec]=useState(null);
+  const [context,setContext]=useState('');
+  const [queue,setQueue]=useState([]);
+  const [reviews,setReviews]=useState({});
+  const [idx,setIdx]=useState(0);
+  const [loading,setLoading]=useState(false);
+  const [progress,setProgress]=useState({step:'',pct:0});
+  const [filterMod,setFilterMod]=useState('all');
+  const [filterStatus,setFilterStatus]=useState('all');
+  const modules=[...new Set(lectures.map(l=>l.module))];
+
+  const statusCounts={
+    notstarted:lectures.filter(l=>getLectureStatus(l)==='notstarted').length,
+    inprogress:lectures.filter(l=>getLectureStatus(l)==='inprogress').length,
+    complete:lectures.filter(l=>getLectureStatus(l)==='complete').length,
+  };
+
+  useEffect(()=>{if(selLec) loadReviews();},[selLec]);
+
+  async function loadReviews(){
+    const{data}=await db.from('reviews').select('*').eq('lecture_id',selLec.id);
+    const map={};(data||[]).forEach(r=>{map[r.card_id]=r});setReviews(map);
+  }
+
+  async function findCards(){
+    if(!apiKey){alert('Enter your Anthropic API key in setup first.');return;}
+    if(!context.trim()){alert('Paste lecture content first.');return;}
+    setLoading(true);setQueue([]);setIdx(0);
+
+    const keywords=extractKeywords(context);
+    const seededIds=new Set();
+    const lecTag=selLec.name.replace(/\s+/g,'_');
+
+    const seeded=cards.filter(c=>{
+      const tags=(c.existing_tags||'').toLowerCase();
+      return tags.includes(lecTag.toLowerCase())||tags.includes(selLec.module.toLowerCase()+'::'+lecTag.toLowerCase());
+    });
+    seeded.forEach(c=>seededIds.add(c.id));
+
+    const candidates=cards.filter(c=>{
+      if(seededIds.has(c.id)) return false;
+      const text=(c.front+' '+c.back).toLowerCase();
+      return keywords.some(kw=>text.includes(kw));
+    });
+
+    setProgress({step:`Found ${seeded.length} seeded + ${candidates.length} keyword candidates. Starting pass 1...`,pct:5});
+
+    const CHUNK=400;
+    const chunks=[];
+    for(let i=0;i<candidates.length;i+=CHUNK) chunks.push(candidates.slice(i,i+CHUNK));
+
+    let survivors=[];
+    for(let ci=0;ci<chunks.length;ci++){
+      const chunk=chunks[ci];
+      setProgress({step:`Pass 1: chunk ${ci+1} of ${Math.max(chunks.length,1)}...`,pct:Math.round(5+((ci+1)/Math.max(chunks.length,1))*55)});
+      try{
+        const prompt=`You are triaging Anki flashcards for medical students.
+LECTURE: "${selLec.name}" (Module: ${selLec.module})
+LECTURE CONTENT: ${context.slice(0,1500)}
+CARDS (INDEX|FRONT|BACK):
+${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
+Return ONLY a JSON array of indices of cards that could plausibly relate to this lecture. Be inclusive. Example: [0,3,7]
+JSON array only, no markdown.`;
+        const res=await fetch('https://api.anthropic.com/v1/messages',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+          body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})
+        });
+        const data=await res.json();
+        const text=data.content?.[0]?.text||'[]';
+        const indices=JSON.parse(text.replace(/```json|```/g,'').trim());
+        indices.forEach(i=>{if(chunk[i]) survivors.push(chunk[i])});
+      }catch(e){survivors=[...survivors,...chunk];}
+    }
+
+    setProgress({step:`Pass 1 done. ${survivors.length} survivors. Running deep analysis...`,pct:65});
+
+    let finalQueue=[...seeded.map(c=>({...c,confidence:'seeded',reason:'Previously tagged for this lecture — please verify'}))];
+
+    const DEEP=100;
+    const deepChunks=[];
+    for(let i=0;i<survivors.length;i+=DEEP) deepChunks.push(survivors.slice(i,i+DEEP));
+
+    for(let ci=0;ci<deepChunks.length;ci++){
+      const chunk=deepChunks[ci];
+      setProgress({step:`Pass 2: chunk ${ci+1} of ${Math.max(deepChunks.length,1)}...`,pct:Math.round(65+((ci+1)/Math.max(deepChunks.length,1))*30)});
+      try{
+        const prompt=`You are helping medical students tag Anki flashcards.
+LECTURE: "${selLec.name}" (Module: ${selLec.module})
+LECTURE CONTENT: ${context.slice(0,2000)}
+CARDS (INDEX|FRONT|BACK):
+${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
+For each card that genuinely belongs to this lecture return a JSON array of objects.
+Each: {"index":number,"confidence":"high"|"medium"|"low","reason":"one sentence"}
+Only include cards that truly belong. JSON array only, no markdown.`;
+        const res=await fetch('https://api.anthropic.com/v1/messages',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+          body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:prompt}]})
+        });
+        const data=await res.json();
+        const text=data.content?.[0]?.text||'[]';
+        const hits=JSON.parse(text.replace(/```json|```/g,'').trim());
+        hits.forEach(h=>{if(chunk[h.index]) finalQueue.push({...chunk[h.index],confidence:h.confidence,reason:h.reason})});
+      }catch(e){deepChunks[ci].forEach(c=>finalQueue.push({...c,confidence:'medium',reason:'Included due to analysis error'}));}
+    }
+
+    setProgress({step:`Complete. ${finalQueue.length} cards queued for review.`,pct:100});
+    setQueue(finalQueue);
+    setIdx(0);
+    setLoading(false);
+  }
+
+  async function decide(card,decision){
+    const existing=reviews[card.id];
+    const payload={card_id:card.id,lecture_id:selLec.id,decision,reviewed_by:reviewer,reviewed_at:new Date().toISOString()};
+    if(existing){
+      await db.from('reviews').update(payload).eq('id',existing.id);
+    } else {
+      await db.from('reviews').insert(payload);
+      setLectureReviewCounts(p=>({...p,[selLec.id]:(p[selLec.id]||0)+1}));
+    }
+    setReviews(p=>({...p,[card.id]:payload}));
+    if(idx<queue.length-1) setIdx(i=>i+1);
+  }
+
+  async function markComplete(){
+    const{data}=await db.from('lecture_completions').insert({lecture_id:selLec.id,completed_by:reviewer}).select().single();
+    if(data) setCompletions(p=>({...p,[selLec.id]:data}));
+  }
+
+  async function unmarkComplete(){
+    await db.from('lecture_completions').delete().eq('lecture_id',selLec.id);
+    setCompletions(p=>{const n={...p};delete n[selLec.id];return n;});
+  }
+
+  async function exportResults(){
+    const{data}=await db.from('reviews').select('*, cards(*), lectures(*)').eq('decision','approved');
+    if(!data) return;
+    const lines=['card_front\tcard_back\ttag'];
+    data.forEach(r=>{
+      const tag=`VPS::${r.lectures.module}::${r.lectures.name.replace(/\s+/g,'_')}`;
+      lines.push(`${r.cards.front}\t${r.cards.back}\t${tag}`);
+    });
+    const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='vps_anki_tags.txt';a.click();
+  }
+
+  const filteredLectures=lectures.filter(l=>{
+    const modOk=filterMod==='all'||l.module===filterMod;
+    const st=getLectureStatus(l);
+    const stOk=filterStatus==='all'||st===filterStatus;
+    return modOk&&stOk;
+  });
+
+  const currentCard=queue[idx];
+  const approvedCount=Object.values(reviews).filter(r=>r.decision==='approved'&&r.lecture_id===selLec?.id).length;
+  const rejectedCount=Object.values(reviews).filter(r=>r.decision==='rejected'&&r.lecture_id===selLec?.id).length;
+  const isComplete=selLec&&completions[selLec.id];
+
+  function StatusDot({lec}){
+    const st=getLectureStatus(lec);
+    if(st==='complete') return <span class="dot dot-ok" title="Complete"/>;
+    if(st==='inprogress') return <span class="dot dot-warn" title="In progress"/>;
+    return <span class="dot dot-gray" title="Not started"/>;
+  }
+
+  return(
+    <div style={{maxWidth:960,margin:'0 auto',padding:'1.5rem 1rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:'1rem',marginBottom:'1.25rem'}}>
+        <button onClick={onBack} style={{border:'none',background:'none',color:'var(--txt2)',padding:0,fontSize:13}}>
+          <i class="ti ti-arrow-left"/> Setup
+        </button>
+        <h2 style={{flex:1}}>Review session</h2>
+        <span class="badge b-acc">{reviewer}</span>
+        <button onClick={exportResults}><i class="ti ti-download"/> Export tags</button>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px',marginBottom:'1rem'}}>
+        {[['not started','notstarted','dot-gray',statusCounts.notstarted],['in progress','inprogress','dot-warn',statusCounts.inprogress],['complete','complete','dot-ok',statusCounts.complete]].map(([label,key,dotCls,count])=>(
+          <div key={key} style={{background:'var(--bg1)',border:filterStatus===key?'2px solid var(--acc)':'0.5px solid var(--bdr)',borderRadius:'var(--rad)',padding:'0.75rem',display:'flex',alignItems:'center',gap:8,cursor:'pointer'}} onClick={()=>setFilterStatus(filterStatus===key?'all':key)}>
+            <span class={`dot ${dotCls}`}/>
+            <div>
+              <div style={{fontSize:20,fontWeight:500}}>{count}</div>
+              <div style={{fontSize:12,color:'var(--txt2)'}}>{label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'280px 1fr',gap:'1rem'}}>
+        <div>
+          <div class="card">
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+              <h3 style={{fontSize:14}}>Lectures</h3>
+              <select value={filterMod} onChange={e=>setFilterMod(e.target.value)} style={{width:'auto',padding:'3px 6px',fontSize:11}}>
+                <option value="all">All modules</option>
+                {modules.map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div style={{maxHeight:520,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
+              {filteredLectures.map(l=>{
+                const active=selLec?.id===l.id;
+                return(
+                  <button key={l.id} onClick={()=>{setSelLec(l);setContext('');setQueue([]);setProgress({step:'',pct:0})}} style={{textAlign:'left',padding:'7px 10px',borderRadius:'var(--rad)',border:active?'1.5px solid var(--acc)':'0.5px solid var(--bdr)',background:active?'var(--accL)':'transparent',color:active?'var(--accT)':'var(--txt1)',fontSize:13,display:'flex',alignItems:'center',gap:8}}>
+                    <StatusDot lec={l}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:active?500:400,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{l.name}</div>
+                      <div style={{fontSize:11,color:active?'var(--acc)':'var(--txt2)'}}>{l.module}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          {!selLec?(
+            <div class="card" style={{textAlign:'center',padding:'3rem',color:'var(--txt2)'}}>
+              <i class="ti ti-hand-click" style={{fontSize:32,display:'block',marginBottom:'0.5rem'}}/>
+              <p>Select a lecture to begin</p>
+            </div>
+          ):(
+            <>
+              <div class="card" style={{marginBottom:'1rem'}}>
+                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                  <div>
+                    <h3>{selLec.name}</h3>
+                    <p style={{color:'var(--txt2)',fontSize:13}}>{selLec.module}</p>
+                  </div>
+                  <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                    <span class="badge b-ok"><i class="ti ti-check"/> {approvedCount} approved</span>
+                    <span class="badge b-err"><i class="ti ti-x"/> {rejectedCount} rejected</span>
+                    {isComplete
+                      ?<button onClick={unmarkComplete} style={{fontSize:12,padding:'4px 10px'}}><i class="ti ti-rotate-clockwise"/> Reopen</button>
+                      :<button class="ok" onClick={markComplete} style={{fontSize:12,padding:'4px 10px'}}><i class="ti ti-circle-check"/> Mark complete</button>
+                    }
+                  </div>
+                </div>
+                {isComplete&&<div style={{background:'var(--okL)',color:'var(--ok)',borderRadius:'var(--rad)',padding:'8px 12px',fontSize:13,marginBottom:'0.75rem'}}>
+                  Marked complete by {completions[selLec.id].completed_by}
+                </div>}
+                <div class="field">
+                  <label>Paste lecture content (slide text, synopsis, key topics)</label>
+                  <textarea value={context} onChange={e=>setContext(e.target.value)} rows={4} placeholder="e.g. This lecture covers Starling forces, hydrostatic pressure, oncotic pressure, capillary filtration, edema formation..."/>
+                </div>
+                <button class="pri" onClick={findCards} disabled={loading||!context.trim()}>
+                  <i class="ti ti-sparkles"/> {loading?'Analyzing...':'Find relevant cards'}
+                </button>
+                {(loading||progress.step)&&(
+                  <div style={{marginTop:'0.75rem'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                      <span style={{color:'var(--txt2)',fontSize:13}}>{progress.step}</span>
+                      <span style={{color:'var(--txt2)',fontSize:13}}>{progress.pct}%</span>
+                    </div>
+                    <div class="pbar"><div class="pfill" style={{width:`${progress.pct}%`}}/></div>
+                  </div>
+                )}
+              </div>
+
+              {queue.length>0&&currentCard&&(
+                <div class="card">
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                    <h3>Card {idx+1} of {queue.length}</h3>
+                    <div style={{display:'flex',gap:6}}>
+                      {currentCard.confidence==='seeded'
+                        ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
+                        :<span class={`badge ${currentCard.confidence==='high'?'b-ok':currentCard.confidence==='medium'?'b-acc':'b-gray'}`}>{currentCard.confidence} confidence</span>
+                      }
+                      {reviews[currentCard.id]&&<span class={`badge ${reviews[currentCard.id].decision==='approved'?'b-ok':'b-err'}`}>{reviews[currentCard.id].decision}</span>}
+                    </div>
+                  </div>
+                  <div class="pbar" style={{marginBottom:'1rem'}}>
+                    <div class="pfill" style={{width:`${Math.round(((idx+1)/queue.length)*100)}%`}}/>
+                  </div>
+                  <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
+                    <p style={{fontSize:12,color:'var(--txt2)',marginBottom:4}}>Front</p>
+                    <p style={{fontSize:15,lineHeight:1.5}}>{currentCard.front}</p>
+                  </div>
+                  <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
+                    <p style={{fontSize:12,color:'var(--txt2)',marginBottom:4}}>Back</p>
+                    <p style={{fontSize:15,lineHeight:1.5}}>{currentCard.back}</p>
+                  </div>
+                  <div style={{background:'var(--accL)',borderRadius:'var(--rad)',padding:'0.75rem',marginBottom:'1rem'}}>
+                    <p style={{fontSize:13,color:'var(--accT)'}}><i class="ti ti-info-circle"/> {currentCard.reason||'No reason provided'}</p>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'0.75rem'}}>
+                    <button class="ok" onClick={()=>decide(currentCard,'approved')} style={{padding:'10px'}}>
+                      <i class="ti ti-check"/> Approve
+                    </button>
+                    <button class="err" onClick={()=>decide(currentCard,'rejected')} style={{padding:'10px'}}>
+                      <i class="ti ti-x"/> Reject
+                    </button>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between'}}>
+                    <button onClick={()=>setIdx(i=>Math.max(0,i-1))} disabled={idx===0}>
+                      <i class="ti ti-arrow-left"/> Previous
+                    </button>
+                    <span style={{color:'var(--txt2)',fontSize:12,alignSelf:'center'}}>{Math.round(((idx+1)/queue.length)*100)}% reviewed</span>
+                    <button onClick={()=>setIdx(i=>Math.min(queue.length-1,i+1))} disabled={idx===queue.length-1}>
+                      Next <i class="ti ti-arrow-right"/>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
