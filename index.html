@@ -33,6 +33,7 @@ button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
 button.pri:hover{background:var(--accT)}
 button.ok{background:var(--ok);color:#fff;border-color:var(--ok)}
 button.err{background:var(--err);color:#fff;border-color:var(--err)}
+button.warn{background:#EF9F27;color:#fff;border-color:#EF9F27}
 .card{background:var(--bg1);border:0.5px solid var(--bdr);border-radius:var(--radL);padding:1.25rem}
 .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:var(--rad);font-size:12px;font-weight:500}
 .b-acc{background:var(--accL);color:var(--accT)}
@@ -50,20 +51,32 @@ label{font-size:13px;color:var(--txt2);display:block;margin-bottom:4px}
 .dot-gray{background:#b4b2a9}
 .dot-warn{background:#EF9F27}
 .dot-ok{background:#1D9E75}
+.kw-chip{display:inline-flex;align-items:center;gap:5px;background:var(--accL);color:var(--accT);font-size:12px;padding:3px 8px;border-radius:20px;margin:2px}
+.kw-chip button{border:none;background:none;color:var(--accT);padding:0;font-size:14px;line-height:1;cursor:pointer;opacity:.6}
+.kw-chip button:hover{opacity:1;background:none}
+.kw-chip .by{font-size:10px;opacity:.6}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal{background:var(--bg1);border-radius:var(--radL);padding:1.5rem;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.15)}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect} = React;
+const {useState,useEffect,useRef} = React;
 const SB_URL='https://kzbingoavnociklavnsa.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6YmluZ29hdm5vY2lrbGF2bnNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0ODUxMTUsImV4cCI6MjA5NjA2MTExNX0.GNdHkBLHamZczIBK-4RbsbwQAIlo3RI1yXPNUq5a_9I';
 const db=window.supabase.createClient(SB_URL,SB_KEY);
 
-const STOP_WORDS=new Set(['a','an','the','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','this','that','these','those','it','its','they','their','them','he','she','we','you','i','my','your','our','his','her','what','which','who','how','when','where','why','all','as','if','so','than','then','there','here','about','into','through','during','before','after','above','below','between','each','other','such','no','not','only','same','also','just','more','most','over','under','again','further','both','few','some','any','each','every']);
+const STOP_WORDS=new Set(['a','an','the','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','this','that','these','those','it','its','they','their','them','he','she','we','you','i','my','your','our','his','her','what','which','who','how','when','where','why','all','as','if','so','than','then','there','here','about','into','through','during','before','after','above','below','between','each','other','such','no','not','only','same','also','just','more','most','over','under','again','further','both','few','some','any','every','also','used','using','which','within','without','however','therefore','because','since','while','although','though','whether','either','neither','both','among','including','following','across','behind','beyond','plus','except','up','out','around','down','off','above','near']);
 
 function extractKeywords(text){
   return [...new Set(text.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>3&&!STOP_WORDS.has(w)))];
+}
+
+function estimateCost(candidateCount){
+  const deepChunks=Math.ceil(candidateCount/100);
+  const costPerChunk=0.02;
+  return (deepChunks*costPerChunk).toFixed(2);
 }
 
 function App(){
@@ -120,7 +133,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
     }
     const{data}=await db.from('cards').select('*');
     setCards(data||[]);
-    setStatus(`${parsed.length} cards imported.`);
+    setStatus(`${parsed.length} cards imported successfully.`);
     setLoading(false);
   }
 
@@ -142,10 +155,16 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
 
   return(
     <div style={{maxWidth:700,margin:'0 auto',padding:'2rem 1rem'}}>
-      <h2 style={{marginBottom:4}}>VPS Anki retagger — setup</h2>
-      <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem'}}>Configure your session before reviewing.</p>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+        <div style={{width:32,height:32,background:'var(--acc)',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
+        </div>
+        <h2>VPS Anki Retagger</h2>
+      </div>
+      <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
+
       <div class="card" style={{marginBottom:'1rem'}}>
-        <h3 style={{marginBottom:'1rem'}}>Your info</h3>
+        <h3 style={{marginBottom:'1rem',fontSize:15}}>Your info</h3>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
           <div class="field" style={{margin:0}}>
             <label>Your name</label>
@@ -157,6 +176,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           </div>
         </div>
       </div>
+
       <div class="card" style={{marginBottom:'1rem'}}>
         <div style={{display:'flex',gap:'1.5rem',borderBottom:'0.5px solid var(--bdr)',marginBottom:'1rem',paddingBottom:'0.75rem'}}>
           {['cards','lectures'].map(t=>(
@@ -165,8 +185,9 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
             </button>
           ))}
         </div>
+
         {tab==='cards'&&<>
-          <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'0.75rem'}}>In Anki: File → Export → Notes in Plain Text. Check "Include tags". Paste the file contents below.</p>
+          <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'0.75rem'}}>In Anki: <strong>File → Export → Notes in Plain Text</strong>. Check <strong>"Include tags"</strong>. Paste file contents below.</p>
           <div class="field">
             <label>Card data (tab-separated: front · back · tags)</label>
             <textarea value={cardText} onChange={e=>setCardText(e.target.value)} rows={6} placeholder={"What is normal GFR?\tApproximately 120 mL/min\tVPS::Nephrology::GFR\nDefine oliguria\tUrine < 0.5 mL/kg/hr\t"}/>
@@ -174,9 +195,10 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <button class="pri" onClick={importCards} disabled={loading||!cardText.trim()}>
             <i class="ti ti-upload"/> {loading?status:'Import cards'}
           </button>
-          {!loading&&status&&<p style={{color:'var(--txt2)',fontSize:13,marginTop:'0.5rem'}}>{status}</p>}
-          {cards.length>0&&<p style={{color:'var(--txt2)',fontSize:13,marginTop:'0.5rem'}}>{cards.length} cards in database</p>}
+          {!loading&&status&&<p style={{color:'var(--ok)',fontSize:13,marginTop:'0.5rem'}}><i class="ti ti-check"/> {status}</p>}
+          {cards.length>0&&!status&&<p style={{color:'var(--txt2)',fontSize:13,marginTop:'0.5rem'}}><i class="ti ti-database"/> {cards.length} cards in database</p>}
         </>}
+
         {tab==='lectures'&&<>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:'8px',alignItems:'end',marginBottom:'1rem'}}>
             <div class="field" style={{margin:0}}>
@@ -185,14 +207,14 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
             </div>
             <div class="field" style={{margin:0}}>
               <label>Lecture name</label>
-              <input type="text" value={lecName} onChange={e=>setLecName(e.target.value)} placeholder="e.g. Starling Forces"/>
+              <input type="text" value={lecName} onChange={e=>setLecName(e.target.value)} placeholder="e.g. Starling Forces" onKeyDown={e=>{if(e.key==='Enter'){addLecture(lecName,modName);setLecName('')}}}/>
             </div>
             <button class="pri" onClick={()=>{addLecture(lecName,modName);setLecName('')}} disabled={!lecName||!modName}>
               <i class="ti ti-plus"/> Add
             </button>
           </div>
           <div class="field">
-            <label>Or bulk import — Module | Lecture name, one per line</label>
+            <label>Or bulk import — one per line: Module | Lecture name</label>
             <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)} rows={4} placeholder={"Nephrology | Starling Forces\nNephrology | AKI\nCardiology | Heart Failure"}/>
           </div>
           <button onClick={bulkImport} disabled={!bulkText.trim()}>Import list</button>
@@ -204,16 +226,143 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           </div>}
         </>}
       </div>
+
       <button class="pri" onClick={onContinue} disabled={!reviewer} style={{width:'100%',padding:'10px'}}>
-        Go to review <i class="ti ti-arrow-right"/>
+        Go to review session <i class="ti ti-arrow-right"/>
       </button>
+    </div>
+  );
+}
+
+function KeywordPanel({lecture, reviewer, cards, onCandidateCount}){
+  const [keywords,setKeywords]=useState([]);
+  const [newKw,setNewKw]=useState('');
+  const [synopsisText,setSynopsisText]=useState('');
+  const inputRef=useRef();
+
+  useEffect(()=>{loadKeywords();},[lecture.id]);
+
+  useEffect(()=>{
+    const ids=new Set();
+    const seeded=cards.filter(c=>{
+      const tags=(c.existing_tags||'').toLowerCase();
+      const lecTag=lecture.name.replace(/\s+/g,'_').toLowerCase();
+      return tags.includes(lecTag);
+    });
+    seeded.forEach(c=>ids.add(c.id));
+    const kwList=keywords.map(k=>k.keyword.toLowerCase());
+    const candidates=cards.filter(c=>{
+      if(ids.has(c.id)) return false;
+      const text=(c.front+' '+c.back).toLowerCase();
+      return kwList.some(kw=>text.includes(kw));
+    });
+    onCandidateCount(seeded.length, candidates.length);
+  },[keywords, cards]);
+
+  async function loadKeywords(){
+    const{data}=await db.from('keywords').select('*').eq('lecture_id',lecture.id).order('added_at');
+    setKeywords(data||[]);
+  }
+
+  async function addKeyword(kw){
+    const clean=kw.trim().toLowerCase();
+    if(!clean||keywords.find(k=>k.keyword===clean)) return;
+    const{data,error}=await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:reviewer}).select().single();
+    if(!error) setKeywords(p=>[...p,data]);
+  }
+
+  async function removeKeyword(id){
+    await db.from('keywords').delete().eq('id',id);
+    setKeywords(p=>p.filter(k=>k.id!==id));
+  }
+
+  async function extractFromSynopsis(){
+    const kws=extractKeywords(synopsisText);
+    for(const kw of kws){
+      const clean=kw.trim().toLowerCase();
+      if(!clean||keywords.find(k=>k.keyword===clean)) continue;
+      await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'}).select().single();
+    }
+    await loadKeywords();
+    setSynopsisText('');
+  }
+
+  return(
+    <div>
+      <div style={{marginBottom:'0.75rem'}}>
+        <label style={{marginBottom:'0.5rem',display:'flex',alignItems:'center',gap:6}}>
+          <i class="ti ti-key" style={{color:'var(--acc)'}}/>
+          Shared keyword list
+          <span class="badge b-acc" style={{fontSize:11}}>{keywords.length} keywords</span>
+        </label>
+        <div style={{display:'flex',gap:6,marginBottom:'0.5rem'}}>
+          <input ref={inputRef} type="text" value={newKw} onChange={e=>setNewKw(e.target.value)} placeholder="Add a keyword..." onKeyDown={e=>{if(e.key==='Enter'){addKeyword(newKw);setNewKw('')}}} style={{flex:1}}/>
+          <button class="pri" onClick={()=>{addKeyword(newKw);setNewKw('')}} disabled={!newKw.trim()} style={{padding:'8px 12px',whiteSpace:'nowrap'}}>
+            <i class="ti ti-plus"/> Add
+          </button>
+        </div>
+        {keywords.length>0&&(
+          <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'0.75rem',minHeight:48,display:'flex',flexWrap:'wrap',gap:2}}>
+            {keywords.map(k=>(
+              <span key={k.id} class="kw-chip">
+                {k.keyword}
+                <span class="by">{k.added_by==='auto-extract'?'auto':k.added_by}</span>
+                <button onClick={()=>removeKeyword(k.id)} title="Remove">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        {keywords.length===0&&<p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic'}}>No keywords yet — add some above or extract from lecture content below.</p>}
+      </div>
+
+      <div>
+        <label style={{marginBottom:'0.5rem'}}>Auto-extract keywords from lecture content</label>
+        <textarea value={synopsisText} onChange={e=>setSynopsisText(e.target.value)} rows={3} placeholder="Paste slide text or synopsis here to auto-extract keywords..."/>
+        <button onClick={extractFromSynopsis} disabled={!synopsisText.trim()} style={{marginTop:'0.5rem'}}>
+          <i class="ti ti-wand"/> Extract keywords
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmModal({seededCount, candidateCount, onConfirm, onCancel}){
+  const total=seededCount+candidateCount;
+  const est=estimateCost(candidateCount);
+  return(
+    <div class="modal-bg">
+      <div class="modal">
+        <h3 style={{marginBottom:'0.75rem'}}>Confirm analysis</h3>
+        <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'1rem',display:'flex',flexDirection:'column',gap:6}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
+            <span style={{color:'var(--txt2)'}}>Seeded cards (previously tagged)</span>
+            <strong>{seededCount}</strong>
+          </div>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
+            <span style={{color:'var(--txt2)'}}>Keyword-matched candidates</span>
+            <strong>{candidateCount}</strong>
+          </div>
+          <div style={{borderTop:'0.5px solid var(--bdr)',paddingTop:6,display:'flex',justifyContent:'space-between',fontSize:14}}>
+            <span style={{color:'var(--txt2)'}}>Total cards to review</span>
+            <strong>{total}</strong>
+          </div>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
+            <span style={{color:'var(--txt2)'}}>Estimated API cost</span>
+            <strong style={{color:'var(--ok)'}}>${est}</strong>
+          </div>
+        </div>
+        <p style={{fontSize:13,color:'var(--txt2)',marginBottom:'1rem'}}>Claude will run a deep analysis on the {candidateCount} keyword-matched candidates. Seeded cards go directly to the review queue. This cannot be undone mid-run.</p>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          <button onClick={onCancel}>Cancel</button>
+          <button class="pri" onClick={onConfirm}><i class="ti ti-sparkles"/> Run analysis</button>
+        </div>
+      </div>
     </div>
   );
 }
 
 function Review({reviewer,apiKey,lectures,cards,completions,setCompletions,lectureReviewCounts,setLectureReviewCounts,getLectureStatus,onBack}){
   const [selLec,setSelLec]=useState(null);
-  const [context,setContext]=useState('');
   const [queue,setQueue]=useState([]);
   const [reviews,setReviews]=useState({});
   const [idx,setIdx]=useState(0);
@@ -221,6 +370,9 @@ function Review({reviewer,apiKey,lectures,cards,completions,setCompletions,lectu
   const [progress,setProgress]=useState({step:'',pct:0});
   const [filterMod,setFilterMod]=useState('all');
   const [filterStatus,setFilterStatus]=useState('all');
+  const [seededCount,setSeededCount]=useState(0);
+  const [candidateCount,setCandidateCount]=useState(0);
+  const [showConfirm,setShowConfirm]=useState(false);
   const modules=[...new Set(lectures.map(l=>l.module))];
 
   const statusCounts={
@@ -236,76 +388,45 @@ function Review({reviewer,apiKey,lectures,cards,completions,setCompletions,lectu
     const map={};(data||[]).forEach(r=>{map[r.card_id]=r});setReviews(map);
   }
 
-  async function findCards(){
+  async function runAnalysis(){
+    setShowConfirm(false);
     if(!apiKey){alert('Enter your Anthropic API key in setup first.');return;}
-    if(!context.trim()){alert('Paste lecture content first.');return;}
     setLoading(true);setQueue([]);setIdx(0);
 
-    const keywords=extractKeywords(context);
-    const seededIds=new Set();
-    const lecTag=selLec.name.replace(/\s+/g,'_');
-
+    const lecTag=selLec.name.replace(/\s+/g,'_').toLowerCase();
     const seeded=cards.filter(c=>{
       const tags=(c.existing_tags||'').toLowerCase();
-      return tags.includes(lecTag.toLowerCase())||tags.includes(selLec.module.toLowerCase()+'::'+lecTag.toLowerCase());
+      return tags.includes(lecTag);
     });
-    seeded.forEach(c=>seededIds.add(c.id));
+    const seededIds=new Set(seeded.map(c=>c.id));
+
+    const{data:kws}=await db.from('keywords').select('*').eq('lecture_id',selLec.id);
+    const kwList=(kws||[]).map(k=>k.keyword.toLowerCase());
 
     const candidates=cards.filter(c=>{
       if(seededIds.has(c.id)) return false;
       const text=(c.front+' '+c.back).toLowerCase();
-      return keywords.some(kw=>text.includes(kw));
+      return kwList.some(kw=>text.includes(kw));
     });
 
-    setProgress({step:`Found ${seeded.length} seeded + ${candidates.length} keyword candidates. Starting pass 1...`,pct:5});
-
-    const CHUNK=400;
-    const chunks=[];
-    for(let i=0;i<candidates.length;i+=CHUNK) chunks.push(candidates.slice(i,i+CHUNK));
-
-    let survivors=[];
-    for(let ci=0;ci<chunks.length;ci++){
-      const chunk=chunks[ci];
-      setProgress({step:`Pass 1: chunk ${ci+1} of ${Math.max(chunks.length,1)}...`,pct:Math.round(5+((ci+1)/Math.max(chunks.length,1))*55)});
-      try{
-        const prompt=`You are triaging Anki flashcards for medical students.
-LECTURE: "${selLec.name}" (Module: ${selLec.module})
-LECTURE CONTENT: ${context.slice(0,1500)}
-CARDS (INDEX|FRONT|BACK):
-${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
-Return ONLY a JSON array of indices of cards that could plausibly relate to this lecture. Be inclusive. Example: [0,3,7]
-JSON array only, no markdown.`;
-        const res=await fetch('https://api.anthropic.com/v1/messages',{
-          method:'POST',
-          headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-          body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})
-        });
-        const data=await res.json();
-        const text=data.content?.[0]?.text||'[]';
-        const indices=JSON.parse(text.replace(/```json|```/g,'').trim());
-        indices.forEach(i=>{if(chunk[i]) survivors.push(chunk[i])});
-      }catch(e){survivors=[...survivors,...chunk];}
-    }
-
-    setProgress({step:`Pass 1 done. ${survivors.length} survivors. Running deep analysis...`,pct:65});
+    setProgress({step:`Starting deep analysis on ${candidates.length} candidates...`,pct:5});
 
     let finalQueue=[...seeded.map(c=>({...c,confidence:'seeded',reason:'Previously tagged for this lecture — please verify'}))];
 
     const DEEP=100;
     const deepChunks=[];
-    for(let i=0;i<survivors.length;i+=DEEP) deepChunks.push(survivors.slice(i,i+DEEP));
+    for(let i=0;i<candidates.length;i+=DEEP) deepChunks.push(candidates.slice(i,i+DEEP));
 
     for(let ci=0;ci<deepChunks.length;ci++){
       const chunk=deepChunks[ci];
-      setProgress({step:`Pass 2: chunk ${ci+1} of ${Math.max(deepChunks.length,1)}...`,pct:Math.round(65+((ci+1)/Math.max(deepChunks.length,1))*30)});
+      setProgress({step:`Analyzing chunk ${ci+1} of ${deepChunks.length}...`,pct:Math.round(5+((ci+1)/Math.max(deepChunks.length,1))*90)});
       try{
-        const prompt=`You are helping medical students tag Anki flashcards.
+        const prompt=`You are helping medical students tag Anki flashcards to the correct lecture.
 LECTURE: "${selLec.name}" (Module: ${selLec.module})
-LECTURE CONTENT: ${context.slice(0,2000)}
 CARDS (INDEX|FRONT|BACK):
 ${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
 For each card that genuinely belongs to this lecture return a JSON array of objects.
-Each: {"index":number,"confidence":"high"|"medium"|"low","reason":"one sentence"}
+Each: {"index":number,"confidence":"high"|"medium"|"low","reason":"one sentence explaining why"}
 Only include cards that truly belong. JSON array only, no markdown.`;
         const res=await fetch('https://api.anthropic.com/v1/messages',{
           method:'POST',
@@ -319,7 +440,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
       }catch(e){deepChunks[ci].forEach(c=>finalQueue.push({...c,confidence:'medium',reason:'Included due to analysis error'}));}
     }
 
-    setProgress({step:`Complete. ${finalQueue.length} cards queued for review.`,pct:100});
+    setProgress({step:`Done. ${finalQueue.length} cards ready for review.`,pct:100});
     setQueue(finalQueue);
     setIdx(0);
     setLoading(false);
@@ -381,29 +502,31 @@ Only include cards that truly belong. JSON array only, no markdown.`;
   }
 
   return(
-    <div style={{maxWidth:960,margin:'0 auto',padding:'1.5rem 1rem'}}>
+    <div style={{maxWidth:1000,margin:'0 auto',padding:'1.5rem 1rem'}}>
+      {showConfirm&&<ConfirmModal seededCount={seededCount} candidateCount={candidateCount} onConfirm={runAnalysis} onCancel={()=>setShowConfirm(false)}/>}
+
       <div style={{display:'flex',alignItems:'center',gap:'1rem',marginBottom:'1.25rem'}}>
         <button onClick={onBack} style={{border:'none',background:'none',color:'var(--txt2)',padding:0,fontSize:13}}>
           <i class="ti ti-arrow-left"/> Setup
         </button>
         <h2 style={{flex:1}}>Review session</h2>
-        <span class="badge b-acc">{reviewer}</span>
-        <button onClick={exportResults}><i class="ti ti-download"/> Export tags</button>
+        <span class="badge b-acc"><i class="ti ti-user"/>{reviewer}</span>
+        <button onClick={exportResults}><i class="ti ti-download"/> Export approved tags</button>
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px',marginBottom:'1rem'}}>
-        {[['not started','notstarted','dot-gray',statusCounts.notstarted],['in progress','inprogress','dot-warn',statusCounts.inprogress],['complete','complete','dot-ok',statusCounts.complete]].map(([label,key,dotCls,count])=>(
-          <div key={key} style={{background:'var(--bg1)',border:filterStatus===key?'2px solid var(--acc)':'0.5px solid var(--bdr)',borderRadius:'var(--rad)',padding:'0.75rem',display:'flex',alignItems:'center',gap:8,cursor:'pointer'}} onClick={()=>setFilterStatus(filterStatus===key?'all':key)}>
-            <span class={`dot ${dotCls}`}/>
+        {[['Not started','notstarted','dot-gray',statusCounts.notstarted],['In progress','inprogress','dot-warn',statusCounts.inprogress],['Complete','complete','dot-ok',statusCounts.complete]].map(([label,key,dotCls,count])=>(
+          <div key={key} onClick={()=>setFilterStatus(filterStatus===key?'all':key)} style={{background:'var(--bg1)',border:filterStatus===key?'2px solid var(--acc)':'0.5px solid var(--bdr)',borderRadius:'var(--rad)',padding:'0.75rem',display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+            <span class={`dot ${dotCls}`} style={{width:10,height:10}}/>
             <div>
-              <div style={{fontSize:20,fontWeight:500}}>{count}</div>
-              <div style={{fontSize:12,color:'var(--txt2)'}}>{label}</div>
+              <div style={{fontSize:22,fontWeight:600,lineHeight:1}}>{count}</div>
+              <div style={{fontSize:12,color:'var(--txt2)',marginTop:2}}>{label}</div>
             </div>
           </div>
         ))}
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'280px 1fr',gap:'1rem'}}>
+      <div style={{display:'grid',gridTemplateColumns:'270px 1fr',gap:'1rem'}}>
         <div>
           <div class="card">
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
@@ -413,11 +536,11 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                 {modules.map(m=><option key={m} value={m}>{m}</option>)}
               </select>
             </div>
-            <div style={{maxHeight:520,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
+            <div style={{maxHeight:'calc(100vh - 320px)',overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
               {filteredLectures.map(l=>{
                 const active=selLec?.id===l.id;
                 return(
-                  <button key={l.id} onClick={()=>{setSelLec(l);setContext('');setQueue([]);setProgress({step:'',pct:0})}} style={{textAlign:'left',padding:'7px 10px',borderRadius:'var(--rad)',border:active?'1.5px solid var(--acc)':'0.5px solid var(--bdr)',background:active?'var(--accL)':'transparent',color:active?'var(--accT)':'var(--txt1)',fontSize:13,display:'flex',alignItems:'center',gap:8}}>
+                  <button key={l.id} onClick={()=>{setSelLec(l);setQueue([]);setProgress({step:'',pct:0})}} style={{textAlign:'left',padding:'7px 10px',borderRadius:'var(--rad)',border:active?'1.5px solid var(--acc)':'0.5px solid var(--bdr)',background:active?'var(--accL)':'transparent',color:active?'var(--accT)':'var(--txt1)',fontSize:13,display:'flex',alignItems:'center',gap:8}}>
                     <StatusDot lec={l}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:active?500:400,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{l.name}</div>
@@ -430,39 +553,45 @@ Only include cards that truly belong. JSON array only, no markdown.`;
           </div>
         </div>
 
-        <div>
+        <div style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
           {!selLec?(
             <div class="card" style={{textAlign:'center',padding:'3rem',color:'var(--txt2)'}}>
-              <i class="ti ti-hand-click" style={{fontSize:32,display:'block',marginBottom:'0.5rem'}}/>
-              <p>Select a lecture to begin</p>
+              <i class="ti ti-hand-click" style={{fontSize:36,display:'block',marginBottom:'0.75rem'}}/>
+              <p style={{fontSize:15}}>Select a lecture to begin</p>
             </div>
           ):(
             <>
-              <div class="card" style={{marginBottom:'1rem'}}>
-                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+              <div class="card">
+                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:'1rem'}}>
                   <div>
-                    <h3>{selLec.name}</h3>
+                    <h3 style={{fontSize:17}}>{selLec.name}</h3>
                     <p style={{color:'var(--txt2)',fontSize:13}}>{selLec.module}</p>
                   </div>
                   <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                    <span class="badge b-ok"><i class="ti ti-check"/> {approvedCount} approved</span>
-                    <span class="badge b-err"><i class="ti ti-x"/> {rejectedCount} rejected</span>
+                    <span class="badge b-ok"><i class="ti ti-check"/> {approvedCount}</span>
+                    <span class="badge b-err"><i class="ti ti-x"/> {rejectedCount}</span>
                     {isComplete
                       ?<button onClick={unmarkComplete} style={{fontSize:12,padding:'4px 10px'}}><i class="ti ti-rotate-clockwise"/> Reopen</button>
                       :<button class="ok" onClick={markComplete} style={{fontSize:12,padding:'4px 10px'}}><i class="ti ti-circle-check"/> Mark complete</button>
                     }
                   </div>
                 </div>
-                {isComplete&&<div style={{background:'var(--okL)',color:'var(--ok)',borderRadius:'var(--rad)',padding:'8px 12px',fontSize:13,marginBottom:'0.75rem'}}>
-                  Marked complete by {completions[selLec.id].completed_by}
+
+                {isComplete&&<div style={{background:'var(--okL)',color:'var(--ok)',borderRadius:'var(--rad)',padding:'8px 12px',fontSize:13,marginBottom:'1rem'}}>
+                  <i class="ti ti-circle-check"/> Marked complete by {completions[selLec.id].completed_by}
                 </div>}
-                <div class="field">
-                  <label>Paste lecture content (slide text, synopsis, key topics)</label>
-                  <textarea value={context} onChange={e=>setContext(e.target.value)} rows={4} placeholder="e.g. This lecture covers Starling forces, hydrostatic pressure, oncotic pressure, capillary filtration, edema formation..."/>
+
+                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
+
+                <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <div style={{fontSize:13,color:'var(--txt2)'}}>
+                    <i class="ti ti-cards"/> {seededCount} seeded · {candidateCount} keyword matches · est. <strong style={{color:'var(--txt1)'}}>${estimateCost(candidateCount)}</strong>
+                  </div>
+                  <button class="pri" onClick={()=>setShowConfirm(true)} disabled={loading||(seededCount===0&&candidateCount===0)}>
+                    <i class="ti ti-sparkles"/> {loading?'Analyzing...':'Run analysis'}
+                  </button>
                 </div>
-                <button class="pri" onClick={findCards} disabled={loading||!context.trim()}>
-                  <i class="ti ti-sparkles"/> {loading?'Analyzing...':'Find relevant cards'}
-                </button>
+
                 {(loading||progress.step)&&(
                   <div style={{marginTop:'0.75rem'}}>
                     <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
@@ -477,7 +606,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
               {queue.length>0&&currentCard&&(
                 <div class="card">
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
-                    <h3>Card {idx+1} of {queue.length}</h3>
+                    <h3 style={{fontSize:15}}>Card {idx+1} of {queue.length}</h3>
                     <div style={{display:'flex',gap:6}}>
                       {currentCard.confidence==='seeded'
                         ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
@@ -490,29 +619,29 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                     <div class="pfill" style={{width:`${Math.round(((idx+1)/queue.length)*100)}%`}}/>
                   </div>
                   <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
-                    <p style={{fontSize:12,color:'var(--txt2)',marginBottom:4}}>Front</p>
-                    <p style={{fontSize:15,lineHeight:1.5}}>{currentCard.front}</p>
+                    <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Front</p>
+                    <p style={{fontSize:15,lineHeight:1.6}}>{currentCard.front}</p>
                   </div>
                   <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
-                    <p style={{fontSize:12,color:'var(--txt2)',marginBottom:4}}>Back</p>
-                    <p style={{fontSize:15,lineHeight:1.5}}>{currentCard.back}</p>
+                    <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Back</p>
+                    <p style={{fontSize:15,lineHeight:1.6}}>{currentCard.back}</p>
                   </div>
-                  <div style={{background:'var(--accL)',borderRadius:'var(--rad)',padding:'0.75rem',marginBottom:'1rem'}}>
-                    <p style={{fontSize:13,color:'var(--accT)'}}><i class="ti ti-info-circle"/> {currentCard.reason||'No reason provided'}</p>
+                  <div style={{background:'var(--accL)',borderRadius:'var(--rad)',padding:'0.75rem',marginBottom:'1rem',fontSize:13,color:'var(--accT)'}}>
+                    <i class="ti ti-info-circle"/> {currentCard.reason||'No reason provided'}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'0.75rem'}}>
-                    <button class="ok" onClick={()=>decide(currentCard,'approved')} style={{padding:'10px'}}>
+                    <button class="ok" onClick={()=>decide(currentCard,'approved')} style={{padding:'11px',fontSize:15}}>
                       <i class="ti ti-check"/> Approve
                     </button>
-                    <button class="err" onClick={()=>decide(currentCard,'rejected')} style={{padding:'10px'}}>
+                    <button class="err" onClick={()=>decide(currentCard,'rejected')} style={{padding:'11px',fontSize:15}}>
                       <i class="ti ti-x"/> Reject
                     </button>
                   </div>
-                  <div style={{display:'flex',justifyContent:'space-between'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                     <button onClick={()=>setIdx(i=>Math.max(0,i-1))} disabled={idx===0}>
                       <i class="ti ti-arrow-left"/> Previous
                     </button>
-                    <span style={{color:'var(--txt2)',fontSize:12,alignSelf:'center'}}>{Math.round(((idx+1)/queue.length)*100)}% reviewed</span>
+                    <span style={{color:'var(--txt2)',fontSize:12}}>{Math.round(((idx+1)/queue.length)*100)}% reviewed</span>
                     <button onClick={()=>setIdx(i=>Math.min(queue.length-1,i+1))} disabled={idx===queue.length-1}>
                       Next <i class="ti ti-arrow-right"/>
                     </button>
