@@ -8,6 +8,8 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://unpkg.com/mammoth@1.6.0/mammoth.browser.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -33,7 +35,6 @@ button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
 button.pri:hover{background:var(--accT)}
 button.ok{background:var(--ok);color:#fff;border-color:var(--ok)}
 button.err{background:var(--err);color:#fff;border-color:var(--err)}
-button.warn{background:#EF9F27;color:#fff;border-color:#EF9F27}
 .card{background:var(--bg1);border:0.5px solid var(--bdr);border-radius:var(--radL);padding:1.25rem}
 .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:var(--rad);font-size:12px;font-weight:500}
 .b-acc{background:var(--accL);color:var(--accT)}
@@ -56,7 +57,10 @@ label{font-size:13px;color:var(--txt2);display:block;margin-bottom:4px}
 .kw-chip button:hover{opacity:1;background:none}
 .kw-chip .by{font-size:10px;opacity:.6}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:100}
-.modal{background:var(--bg1);border-radius:var(--radL);padding:1.5rem;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.15)}
+.modal{background:var(--bg1);border-radius:var(--radL);padding:1.5rem;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.15)}
+.drop-zone{border:1.5px dashed var(--bdr2);border-radius:var(--rad);padding:1.5rem;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.drop-zone:hover,.drop-zone.over{border-color:var(--acc);background:var(--accL)}
+.drop-zone i{font-size:28px;color:var(--txt2);display:block;margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -67,16 +71,91 @@ const SB_URL='https://kzbingoavnociklavnsa.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6YmluZ29hdm5vY2lrbGF2bnNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0ODUxMTUsImV4cCI6MjA5NjA2MTExNX0.GNdHkBLHamZczIBK-4RbsbwQAIlo3RI1yXPNUq5a_9I';
 const db=window.supabase.createClient(SB_URL,SB_KEY);
 
-const STOP_WORDS=new Set(['a','an','the','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','this','that','these','those','it','its','they','their','them','he','she','we','you','i','my','your','our','his','her','what','which','who','how','when','where','why','all','as','if','so','than','then','there','here','about','into','through','during','before','after','above','below','between','each','other','such','no','not','only','same','also','just','more','most','over','under','again','further','both','few','some','any','every','also','used','using','which','within','without','however','therefore','because','since','while','although','though','whether','either','neither','both','among','including','following','across','behind','beyond','plus','except','up','out','around','down','off','above','near']);
+window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+const STOP_WORDS=new Set(['a','an','the','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','this','that','these','those','it','its','they','their','them','he','she','we','you','i','my','your','our','his','her','what','which','who','how','when','where','why','all','as','if','so','than','then','there','here','about','into','through','during','before','after','above','below','between','each','other','such','no','not','only','same','also','just','more','most','over','under','again','further','both','few','some','any','every','used','using','within','without','however','therefore','because','since','while','although','though','whether','either','neither','among','including','following','across','behind','beyond','plus','except','up','out','around','down','off','near','slide','page','figure','table','lecture','notes','section','chapter','part','unit','module','class','course','study','review','term','word','type','form','make','made','take','taken','give','given','show','shown','see','seen','know','known','find','found','come','came','think','thought','call','called','need','needed','include','included','describe','described']);
 
 function extractKeywords(text){
   return [...new Set(text.toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>3&&!STOP_WORDS.has(w)))];
 }
 
 function estimateCost(candidateCount){
-  const deepChunks=Math.ceil(candidateCount/100);
-  const costPerChunk=0.02;
-  return (deepChunks*costPerChunk).toFixed(2);
+  return (Math.ceil(candidateCount/100)*0.02).toFixed(2);
+}
+
+async function extractTextFromPDF(file){
+  const arrayBuffer=await file.arrayBuffer();
+  const pdf=await window.pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  let text='';
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i);
+    const content=await page.getTextContent();
+    text+=content.items.map(item=>item.str).join(' ')+'\n';
+  }
+  return text;
+}
+
+async function extractTextFromDocx(file){
+  const arrayBuffer=await file.arrayBuffer();
+  const result=await mammoth.extractRawText({arrayBuffer});
+  return result.value;
+}
+
+function FileUploadZone({onTextExtracted}){
+  const [over,setOver]=useState(false);
+  const [processing,setProcessing]=useState(false);
+  const [processStatus,setProcessStatus]=useState('');
+  const inputRef=useRef();
+
+  async function handleFiles(fileList){
+    const files=Array.from(fileList).filter(f=>{
+      const n=f.name.toLowerCase();
+      return n.endsWith('.pdf')||n.endsWith('.docx')||n.endsWith('.doc');
+    });
+    if(files.length===0){alert('Please upload PDF or Word (.docx) files only.');return;}
+    setProcessing(true);
+    for(let i=0;i<files.length;i++){
+      const file=files[i];
+      setProcessStatus(`Reading ${file.name} (${i+1} of ${files.length})...`);
+      try{
+        let text='';
+        if(file.name.toLowerCase().endsWith('.pdf')){
+          text=await extractTextFromPDF(file);
+        } else {
+          text=await extractTextFromDocx(file);
+        }
+        await onTextExtracted(text,file.name);
+      }catch(e){
+        setProcessStatus(`Error reading ${file.name}: ${e.message}`);
+      }
+    }
+    setProcessStatus(`Done — ${files.length} file${files.length>1?'s':''} processed.`);
+    setProcessing(false);
+    setTimeout(()=>setProcessStatus(''),4000);
+  }
+
+  return(
+    <div>
+      <div
+        class={`drop-zone${over?' over':''}`}
+        onClick={()=>inputRef.current.click()}
+        onDragOver={e=>{e.preventDefault();setOver(true)}}
+        onDragLeave={()=>setOver(false)}
+        onDrop={e=>{e.preventDefault();setOver(false);handleFiles(e.dataTransfer.files)}}
+      >
+        <i class={processing?'ti ti-loader':'ti ti-file-upload'}/>
+        {processing
+          ?<p style={{fontSize:13,color:'var(--txt2)'}}>{processStatus}</p>
+          :<>
+            <p style={{fontSize:13,color:'var(--txt2)',fontWeight:500}}>Drop lecture PDFs and Word docs here</p>
+            <p style={{fontSize:12,color:'var(--txt2)',marginTop:2}}>Multiple files supported · .pdf and .docx · click to browse</p>
+          </>
+        }
+      </div>
+      {!processing&&processStatus&&<p style={{color:'var(--ok)',fontSize:13,marginTop:'0.5rem'}}><i class="ti ti-check"/> {processStatus}</p>}
+      <input ref={inputRef} type="file" accept=".pdf,.docx,.doc" multiple style={{display:'none'}} onChange={e=>handleFiles(e.target.files)}/>
+    </div>
+  );
 }
 
 function App(){
@@ -234,30 +313,29 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
   );
 }
 
-function KeywordPanel({lecture, reviewer, cards, onCandidateCount}){
+function KeywordPanel({lecture,reviewer,cards,onCandidateCount}){
   const [keywords,setKeywords]=useState([]);
   const [newKw,setNewKw]=useState('');
-  const [synopsisText,setSynopsisText]=useState('');
-  const inputRef=useRef();
+  const [extractStatus,setExtractStatus]=useState('');
 
   useEffect(()=>{loadKeywords();},[lecture.id]);
 
   useEffect(()=>{
-    const ids=new Set();
+    const seededIds=new Set();
+    const lecTag=lecture.name.replace(/\s+/g,'_').toLowerCase();
     const seeded=cards.filter(c=>{
       const tags=(c.existing_tags||'').toLowerCase();
-      const lecTag=lecture.name.replace(/\s+/g,'_').toLowerCase();
       return tags.includes(lecTag);
     });
-    seeded.forEach(c=>ids.add(c.id));
+    seeded.forEach(c=>seededIds.add(c.id));
     const kwList=keywords.map(k=>k.keyword.toLowerCase());
     const candidates=cards.filter(c=>{
-      if(ids.has(c.id)) return false;
+      if(seededIds.has(c.id)) return false;
       const text=(c.front+' '+c.back).toLowerCase();
       return kwList.some(kw=>text.includes(kw));
     });
-    onCandidateCount(seeded.length, candidates.length);
-  },[keywords, cards]);
+    onCandidateCount(seeded.length,candidates.length);
+  },[keywords,cards]);
 
   async function loadKeywords(){
     const{data}=await db.from('keywords').select('*').eq('lecture_id',lecture.id).order('added_at');
@@ -276,32 +354,48 @@ function KeywordPanel({lecture, reviewer, cards, onCandidateCount}){
     setKeywords(p=>p.filter(k=>k.id!==id));
   }
 
-  async function extractFromSynopsis(){
-    const kws=extractKeywords(synopsisText);
+  async function handleFileExtract(text,filename){
+    const kws=extractKeywords(text);
+    let added=0;
     for(const kw of kws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
-      await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'}).select().single();
+      const{error}=await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'});
+      if(!error) added++;
     }
     await loadKeywords();
-    setSynopsisText('');
+    return added;
+  }
+
+  async function handleMultiFileExtract(text,filename){
+    await handleFileExtract(text,filename);
+  }
+
+  async function handleTextExtract(text){
+    const kws=extractKeywords(text);
+    for(const kw of kws){
+      const clean=kw.trim().toLowerCase();
+      if(!clean||keywords.find(k=>k.keyword===clean)) continue;
+      await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'});
+    }
+    await loadKeywords();
   }
 
   return(
     <div>
-      <div style={{marginBottom:'0.75rem'}}>
+      <div style={{marginBottom:'1rem'}}>
         <label style={{marginBottom:'0.5rem',display:'flex',alignItems:'center',gap:6}}>
           <i class="ti ti-key" style={{color:'var(--acc)'}}/>
           Shared keyword list
           <span class="badge b-acc" style={{fontSize:11}}>{keywords.length} keywords</span>
         </label>
         <div style={{display:'flex',gap:6,marginBottom:'0.5rem'}}>
-          <input ref={inputRef} type="text" value={newKw} onChange={e=>setNewKw(e.target.value)} placeholder="Add a keyword..." onKeyDown={e=>{if(e.key==='Enter'){addKeyword(newKw);setNewKw('')}}} style={{flex:1}}/>
+          <input type="text" value={newKw} onChange={e=>setNewKw(e.target.value)} placeholder="Type a keyword and press Enter..." onKeyDown={e=>{if(e.key==='Enter'){addKeyword(newKw);setNewKw('')}}} style={{flex:1}}/>
           <button class="pri" onClick={()=>{addKeyword(newKw);setNewKw('')}} disabled={!newKw.trim()} style={{padding:'8px 12px',whiteSpace:'nowrap'}}>
             <i class="ti ti-plus"/> Add
           </button>
         </div>
-        {keywords.length>0&&(
+        {keywords.length>0?(
           <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'0.75rem',minHeight:48,display:'flex',flexWrap:'wrap',gap:2}}>
             {keywords.map(k=>(
               <span key={k.id} class="kw-chip">
@@ -311,29 +405,47 @@ function KeywordPanel({lecture, reviewer, cards, onCandidateCount}){
               </span>
             ))}
           </div>
+        ):(
+          <p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic',padding:'0.5rem 0'}}>No keywords yet — add manually or upload lecture materials below.</p>
         )}
-        {keywords.length===0&&<p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic'}}>No keywords yet — add some above or extract from lecture content below.</p>}
       </div>
 
       <div>
-        <label style={{marginBottom:'0.5rem'}}>Auto-extract keywords from lecture content</label>
-        <textarea value={synopsisText} onChange={e=>setSynopsisText(e.target.value)} rows={3} placeholder="Paste slide text or synopsis here to auto-extract keywords..."/>
-        <button onClick={extractFromSynopsis} disabled={!synopsisText.trim()} style={{marginTop:'0.5rem'}}>
-          <i class="ti ti-wand"/> Extract keywords
-        </button>
+        <label style={{marginBottom:'0.5rem',display:'flex',alignItems:'center',gap:6}}>
+          <i class="ti ti-file-text" style={{color:'var(--acc)'}}/>
+          Extract keywords from lecture materials
+        </label>
+        <FileUploadZone onTextExtracted={handleMultiFileExtract}/>
+        {extractStatus&&<p style={{color:'var(--ok)',fontSize:13,marginTop:'0.5rem'}}><i class="ti ti-check"/> {extractStatus}</p>}
+        <div style={{marginTop:'0.75rem'}}>
+          <label style={{marginBottom:'0.25rem'}}>Or paste text directly</label>
+          <PasteExtract onExtract={handleTextExtract}/>
+        </div>
       </div>
     </div>
   );
 }
 
-function ConfirmModal({seededCount, candidateCount, onConfirm, onCancel}){
+function PasteExtract({onExtract}){
+  const [text,setText]=useState('');
+  return(
+    <div style={{display:'flex',gap:6,alignItems:'flex-start'}}>
+      <textarea value={text} onChange={e=>setText(e.target.value)} rows={2} placeholder="Paste slide text or synopsis..." style={{flex:1}}/>
+      <button onClick={()=>{onExtract(text);setText('')}} disabled={!text.trim()} style={{whiteSpace:'nowrap',padding:'8px 12px'}}>
+        <i class="ti ti-wand"/> Extract
+      </button>
+    </div>
+  );
+}
+
+function ConfirmModal({seededCount,candidateCount,onConfirm,onCancel}){
   const total=seededCount+candidateCount;
   const est=estimateCost(candidateCount);
   return(
     <div class="modal-bg">
       <div class="modal">
         <h3 style={{marginBottom:'0.75rem'}}>Confirm analysis</h3>
-        <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'1rem',display:'flex',flexDirection:'column',gap:6}}>
+        <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'1rem',display:'flex',flexDirection:'column',gap:8}}>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
             <span style={{color:'var(--txt2)'}}>Seeded cards (previously tagged)</span>
             <strong>{seededCount}</strong>
@@ -342,7 +454,7 @@ function ConfirmModal({seededCount, candidateCount, onConfirm, onCancel}){
             <span style={{color:'var(--txt2)'}}>Keyword-matched candidates</span>
             <strong>{candidateCount}</strong>
           </div>
-          <div style={{borderTop:'0.5px solid var(--bdr)',paddingTop:6,display:'flex',justifyContent:'space-between',fontSize:14}}>
+          <div style={{borderTop:'0.5px solid var(--bdr)',paddingTop:8,display:'flex',justifyContent:'space-between',fontSize:14}}>
             <span style={{color:'var(--txt2)'}}>Total cards to review</span>
             <strong>{total}</strong>
           </div>
@@ -351,7 +463,7 @@ function ConfirmModal({seededCount, candidateCount, onConfirm, onCancel}){
             <strong style={{color:'var(--ok)'}}>${est}</strong>
           </div>
         </div>
-        <p style={{fontSize:13,color:'var(--txt2)',marginBottom:'1rem'}}>Claude will run a deep analysis on the {candidateCount} keyword-matched candidates. Seeded cards go directly to the review queue. This cannot be undone mid-run.</p>
+        <p style={{fontSize:13,color:'var(--txt2)',marginBottom:'1rem'}}>Claude will run deep analysis on the {candidateCount} keyword-matched candidates. Seeded cards go straight to review. This cannot be undone mid-run.</p>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
           <button onClick={onCancel}>Cancel</button>
           <button class="pri" onClick={onConfirm}><i class="ti ti-sparkles"/> Run analysis</button>
@@ -510,7 +622,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
           <i class="ti ti-arrow-left"/> Setup
         </button>
         <h2 style={{flex:1}}>Review session</h2>
-        <span class="badge b-acc"><i class="ti ti-user"/>{reviewer}</span>
+        <span class="badge b-acc"><i class="ti ti-user"/> {reviewer}</span>
         <button onClick={exportResults}><i class="ti ti-download"/> Export approved tags</button>
       </div>
 
@@ -583,7 +695,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
 
                 <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
 
-                <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
                   <div style={{fontSize:13,color:'var(--txt2)'}}>
                     <i class="ti ti-cards"/> {seededCount} seeded · {candidateCount} keyword matches · est. <strong style={{color:'var(--txt1)'}}>${estimateCost(candidateCount)}</strong>
                   </div>
