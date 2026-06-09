@@ -342,6 +342,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v15</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -437,6 +438,8 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
   const [keywords,setKeywords]=useState([]);
   const [newKw,setNewKw]=useState('');
   const [extractStatus,setExtractStatus]=useState('');
+  const apiKeyRef=useRef(apiKey);
+  useEffect(()=>{apiKeyRef.current=apiKey;},[apiKey]);
 
   useEffect(()=>{loadKeywords();},[lecture.id]);
 
@@ -481,7 +484,8 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
   }
 
   async function filterToMedicalTerms(kws){
-    if(!apiKey) return kws;
+    const key=apiKeyRef.current;
+    if(!key) return kws;
     try{
       const prompt=`You are helping filter keywords extracted from a medical school lecture.
 Here is the list of candidate keywords:
@@ -493,7 +497,7 @@ Keep abbreviations like NADH, FADH, GSD1 if they are medical.
 JSON array only, no markdown, no explanation.`;
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})
       });
       const data=await res.json();
