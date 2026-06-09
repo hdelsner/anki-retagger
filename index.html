@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v27</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v28</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -497,11 +497,11 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
   }
 
   async function handleFileExtract(text,filename){
-    console.log('handleFileExtract called, text length:', text?.length, 'apiKey length:', apiKeyRef.current?.length);
     setExtractStatus(`Extracting keywords from ${filename}...`);
     const rawKws=extractKeywords(text,genericWords);
     setExtractStatus(`Filtering to medical terms (${rawKws.length} candidates)...`);
     const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module);
+    let added=0;
     for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
@@ -509,7 +509,7 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
       if(!error) added++;
     }
     await loadKeywords();
-    setExtractStatus(`Added ${added} medical keywords from ${filename} (filtered from ${rawKws.length} extracted)`);
+    setExtractStatus(`Added ${added} keywords from ${filename} (${rawKws.length} extracted, ${medicalKws.length} after filtering)`);
     return added;
   }
 
