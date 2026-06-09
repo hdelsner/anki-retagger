@@ -101,6 +101,67 @@ async function extractTextFromDocx(file){
   return result.value;
 }
 
+function CardDropZone({onCardsLoaded}){
+  const [over,setOver]=useState(false);
+  const [status,setStatus]=useState('');
+  const [loading,setLoading]=useState(false);
+  const inputRef=useRef();
+
+  async function handleFile(file){
+    if(!file||!file.name.toLowerCase().endsWith('.txt')){
+      alert('Please upload a .txt file exported from Anki.');
+      return;
+    }
+    setLoading(true);
+    setStatus('Reading file...');
+    try{
+      const text=await file.text();
+      const lines=text.trim().split('\n').filter(l=>l.trim()&&!l.startsWith('#'));
+      setStatus(`Parsing ${lines.length.toLocaleString()} lines...`);
+      await new Promise(r=>setTimeout(r,50));
+      const parsed=lines.map((line,i)=>{
+        const parts=line.split('\t');
+        return{anki_id:`card_${i}`,front:parts[0]||'',back:parts[1]||'',existing_tags:parts[2]||''};
+      }).filter(c=>c.front.trim());
+      setStatus(`Uploading ${parsed.length.toLocaleString()} cards to database...`);
+      await new Promise(r=>setTimeout(r,50));
+      const BATCH=100;
+      for(let i=0;i<parsed.length;i+=BATCH){
+        await db.from('cards').upsert(parsed.slice(i,i+BATCH),{onConflict:'anki_id'});
+        if(i%1000===0&&i>0) setStatus(`Uploaded ${i.toLocaleString()} of ${parsed.length.toLocaleString()}...`);
+      }
+      setStatus(`Done — ${parsed.length.toLocaleString()} cards imported.`);
+      onCardsLoaded(parsed.length);
+    }catch(e){
+      setStatus('Error: '+e.message);
+    }
+    setLoading(false);
+  }
+
+  return(
+    <div>
+      <div
+        class={`drop-zone${over?' over':''}`}
+        onClick={()=>inputRef.current.click()}
+        onDragOver={e=>{e.preventDefault();setOver(true)}}
+        onDragLeave={()=>setOver(false)}
+        onDrop={e=>{e.preventDefault();setOver(false);handleFile(e.dataTransfer.files[0])}}
+      >
+        <i class={loading?'ti ti-loader':'ti ti-file-text'}/>
+        {loading
+          ?<p style={{fontSize:13,color:'var(--txt2)'}}>{status}</p>
+          :<>
+            <p style={{fontSize:13,color:'var(--txt2)',fontWeight:500}}>Drop your Anki export .txt file here</p>
+            <p style={{fontSize:12,color:'var(--txt2)',marginTop:2}}>or click to browse</p>
+          </>
+        }
+      </div>
+      {!loading&&status&&<p style={{color:status.startsWith('Error')?'var(--err)':'var(--ok)',fontSize:13,marginTop:'0.5rem'}}><i class={status.startsWith('Error')?'ti ti-alert-circle':'ti ti-check'}/> {status}</p>}
+      <input ref={inputRef} type="file" accept=".txt" style={{display:'none'}} onChange={e=>handleFile(e.target.files[0])}/>
+    </div>
+  );
+}
+
 function FileUploadZone({onTextExtracted}){
   const [over,setOver]=useState(false);
   const [processing,setProcessing]=useState(false);
@@ -192,29 +253,10 @@ function App(){
 
 function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards,setCards,onContinue}){
   const [tab,setTab]=useState('cards');
-  const [cardText,setCardText]=useState('');
   const [lecName,setLecName]=useState('');
   const [modName,setModName]=useState('');
   const [bulkText,setBulkText]=useState('');
-  const [status,setStatus]=useState('');
-  const [loading,setLoading]=useState(false);
-
-  async function importCards(){
-    setLoading(true);setStatus('Parsing...');
-    const lines=cardText.trim().split('\n').filter(l=>l.trim());
-    const parsed=lines.map((line,i)=>{
-      const parts=line.split('\t');
-      return{anki_id:`card_${i}`,front:parts[0]||'',back:parts[1]||'',existing_tags:parts[2]||''};
-    }).filter(c=>c.front);
-    setStatus(`Uploading ${parsed.length} cards...`);
-    for(let i=0;i<parsed.length;i+=100){
-      await db.from('cards').upsert(parsed.slice(i,i+100),{onConflict:'anki_id'});
-    }
-    const{data}=await db.from('cards').select('*');
-    setCards(data||[]);
-    setStatus(`${parsed.length} cards imported successfully.`);
-    setLoading(false);
-  }
+  const [cardCount,setCardCount]=useState(null);
 
   async function addLecture(name,mod){
     if(!name||!mod) return;
@@ -230,6 +272,12 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
       if(mod&&name) await addLecture(name,mod);
     }
     setBulkText('');
+  }
+
+  async function handleCardsLoaded(count){
+    setCardCount(count);
+    const{data}=await db.from('cards').select('*');
+    setCards(data||[]);
   }
 
   return(
@@ -266,16 +314,10 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
         </div>
 
         {tab==='cards'&&<>
-          <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'0.75rem'}}>In Anki: <strong>File → Export → Notes in Plain Text</strong>. Check <strong>"Include tags"</strong>. Paste file contents below.</p>
-          <div class="field">
-            <label>Card data (tab-separated: front · back · tags)</label>
-            <textarea value={cardText} onChange={e=>setCardText(e.target.value)} rows={6} placeholder={"What is normal GFR?\tApproximately 120 mL/min\tVPS::Nephrology::GFR\nDefine oliguria\tUrine < 0.5 mL/kg/hr\t"}/>
-          </div>
-          <button class="pri" onClick={importCards} disabled={loading||!cardText.trim()}>
-            <i class="ti ti-upload"/> {loading?status:'Import cards'}
-          </button>
-          {!loading&&status&&<p style={{color:'var(--ok)',fontSize:13,marginTop:'0.5rem'}}><i class="ti ti-check"/> {status}</p>}
-          {cards.length>0&&!status&&<p style={{color:'var(--txt2)',fontSize:13,marginTop:'0.5rem'}}><i class="ti ti-database"/> {cards.length} cards in database</p>}
+          <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'0.75rem'}}>In Anki: <strong>Notes → Export → Notes in Plain Text</strong>. Check <strong>"Include tags"</strong>, uncheck <strong>"Include media"</strong>. Drop the exported .txt file below.</p>
+          <CardDropZone onCardsLoaded={handleCardsLoaded}/>
+          {cardCount&&<p style={{color:'var(--ok)',fontSize:13,marginTop:'0.75rem'}}><i class="ti ti-database"/> {cardCount.toLocaleString()} cards in database</p>}
+          {!cardCount&&cards.length>0&&<p style={{color:'var(--txt2)',fontSize:13,marginTop:'0.75rem'}}><i class="ti ti-database"/> {cards.length.toLocaleString()} cards already in database</p>}
         </>}
 
         {tab==='lectures'&&<>
@@ -367,10 +409,6 @@ function KeywordPanel({lecture,reviewer,cards,onCandidateCount}){
     return added;
   }
 
-  async function handleMultiFileExtract(text,filename){
-    await handleFileExtract(text,filename);
-  }
-
   async function handleTextExtract(text){
     const kws=extractKeywords(text);
     for(const kw of kws){
@@ -415,7 +453,7 @@ function KeywordPanel({lecture,reviewer,cards,onCandidateCount}){
           <i class="ti ti-file-text" style={{color:'var(--acc)'}}/>
           Extract keywords from lecture materials
         </label>
-        <FileUploadZone onTextExtracted={handleMultiFileExtract}/>
+        <FileUploadZone onTextExtracted={handleFileExtract}/>
         {extractStatus&&<p style={{color:'var(--ok)',fontSize:13,marginTop:'0.5rem'}}><i class="ti ti-check"/> {extractStatus}</p>}
         <div style={{marginTop:'0.75rem'}}>
           <label style={{marginBottom:'0.25rem'}}>Or paste text directly</label>
