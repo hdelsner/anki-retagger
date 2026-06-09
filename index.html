@@ -270,7 +270,7 @@ function App(){
     const rc={};(revCounts||[]).forEach(r=>{rc[r.lecture_id]=(rc[r.lecture_id]||0)+1});setLectureReviewCounts(rc);
     // Build corpus filter from cards
     if(cardsData.length>0){
-      const gw=buildCorpusFilter(cardsData,0.05);
+      const gw=buildCorpusFilter(cardsData,0.01);
       setGenericWords(gw);
     }
   }
@@ -342,7 +342,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v18</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v20</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -492,10 +492,13 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
 Here is the list of candidate keywords:
 ${kws.join(', ')}
 
-Return ONLY a JSON array of strings containing the keywords that are specific medical, biochemical, physiological, or scientific terms.
-Remove generic English words, common verbs, adjectives, and non-technical terms.
-Keep abbreviations like NADH, FADH, GSD1 if they are medical.
-JSON array only, no markdown, no explanation.`;
+Return ONLY a JSON array of strings containing keywords that are specific medical, biochemical, physiological, anatomical, or scientific terms.
+
+Keep: disease names, enzyme names, metabolic pathways, molecules, organs when used in a specific medical context, medical abbreviations (NADH, FADH, GSD1 etc), specific conditions, transporters, receptors.
+
+Remove: generic English adjectives (elevated, different, normal, large, high, toxic, persistent, incomplete, excess, defective, major, specific), common verbs, non-technical nouns (idea, step, phase, history, note, example, food, diet, baby, child), and any word that could appear in non-medical writing.
+
+When in doubt, exclude. JSON array only, no markdown, no explanation.`;
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
@@ -523,8 +526,7 @@ JSON array only, no markdown, no explanation.`;
       if(!error) added++;
     }
     await loadKeywords();
-    setExtractStatus(`Added ${added} medical keywords from ${filename} (filtered from ${rawKws.length})`);
-    setTimeout(()=>setExtractStatus(''),6000);
+    setExtractStatus(`Added ${added} medical keywords from ${filename} (filtered from ${rawKws.length} extracted)`);
     return added;
   }
 
@@ -538,8 +540,7 @@ JSON array only, no markdown, no explanation.`;
       await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'});
     }
     await loadKeywords();
-    setExtractStatus(`Done — added ${medicalKws.length} medical keywords (filtered from ${rawKws.length})`);
-    setTimeout(()=>setExtractStatus(''),6000);
+    setExtractStatus(`Added ${medicalKws.length} medical keywords (filtered from ${rawKws.length} extracted)`);
   }
 
   return(
