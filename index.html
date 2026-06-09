@@ -480,7 +480,7 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
     setKeywords([]);
   }
 
-  async function filterToMedicalTerms(kws, apiKey){
+  async function filterToMedicalTerms(kws){
     if(!apiKey) return kws;
     try{
       const prompt=`You are helping filter keywords extracted from a medical school lecture.
@@ -508,7 +508,7 @@ JSON array only, no markdown, no explanation.`;
     setExtractStatus(`Extracting keywords from ${filename}...`);
     const rawKws=extractKeywords(text,genericWords);
     setExtractStatus(`Filtering to medical terms (${rawKws.length} candidates)...`);
-    const medicalKws=await filterToMedicalTerms(rawKws,apiKey);
+    const medicalKws=await filterToMedicalTerms(rawKws);
     let added=0;
     for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
@@ -525,7 +525,7 @@ JSON array only, no markdown, no explanation.`;
   async function handleTextExtract(text){
     setExtractStatus('Extracting and filtering keywords...');
     const rawKws=extractKeywords(text,genericWords);
-    const medicalKws=await filterToMedicalTerms(rawKws,apiKey);
+    const medicalKws=await filterToMedicalTerms(rawKws);
     for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
