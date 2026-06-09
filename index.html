@@ -256,23 +256,35 @@ function App(){
   const [lectureReviewCounts,setLectureReviewCounts]=useState({});
   const [genericWords,setGenericWords]=useState(new Set());
 
+  const [loadingCards,setLoadingCards]=useState(false);
+
   async function loadAll(){
-    const [{data:lecs},{data:cds},{data:comps},{data:revCounts}]=await Promise.all([
+    setLoadingCards(true);
+    const [{data:lecs},{data:comps},{data:revCounts}]=await Promise.all([
       db.from('lectures').select('*').order('module').order('name'),
-      db.from('cards').select('*'),
       db.from('lecture_completions').select('*'),
       db.from('reviews').select('lecture_id')
     ]);
-    const cardsData=cds||[];
+    // Fetch all cards in batches of 1000 to bypass Supabase row limit
+    let allCards=[];
+    let from=0;
+    const batchSize=1000;
+    while(true){
+      const{data:batch}=await db.from('cards').select('*').range(from,from+batchSize-1);
+      if(!batch||batch.length===0) break;
+      allCards=[...allCards,...batch];
+      if(batch.length<batchSize) break;
+      from+=batchSize;
+    }
     setLectures(lecs||[]);
-    setCards(cardsData);
+    setCards(allCards);
     const cm={};(comps||[]).forEach(c=>{cm[c.lecture_id]=c});setCompletions(cm);
     const rc={};(revCounts||[]).forEach(r=>{rc[r.lecture_id]=(rc[r.lecture_id]||0)+1});setLectureReviewCounts(rc);
-    // Build corpus filter from cards
-    if(cardsData.length>0){
-      const gw=buildCorpusFilter(cardsData,0.01);
+    if(allCards.length>0){
+      const gw=buildCorpusFilter(allCards,0.01);
       setGenericWords(gw);
     }
+    setLoadingCards(false);
   }
 
   function getLectureStatus(lec){
@@ -282,7 +294,7 @@ function App(){
   }
 
   if(screen==='setup') return <Setup reviewer={reviewer} setReviewer={setReviewer} apiKey={apiKey} setApiKey={setApiKey} lectures={lectures} setLectures={setLectures} cards={cards} setCards={setCards} onContinue={()=>{loadAll();setScreen('review')}}/>;
-  return <Review reviewer={reviewer} apiKey={apiKey} lectures={lectures} setLectures={setLectures} cards={cards} completions={completions} setCompletions={setCompletions} lectureReviewCounts={lectureReviewCounts} setLectureReviewCounts={setLectureReviewCounts} getLectureStatus={getLectureStatus} genericWords={genericWords} onBack={()=>setScreen('setup')}/>;
+  return <Review reviewer={reviewer} apiKey={apiKey} lectures={lectures} setLectures={setLectures} cards={cards} completions={completions} setCompletions={setCompletions} lectureReviewCounts={lectureReviewCounts} setLectureReviewCounts={setLectureReviewCounts} getLectureStatus={getLectureStatus} genericWords={genericWords} loadingCards={loadingCards} onBack={()=>setScreen('setup')}/>;
 }
 
 function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards,setCards,onContinue}){
@@ -342,7 +354,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v20</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v22</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -483,22 +495,30 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
     setKeywords([]);
   }
 
-  async function filterToMedicalTerms(kws){
+  async function filterToMedicalTerms(kws, lectureName, lectureModule){
     const key=apiKeyRef.current;
     console.log('API key length:', key?.length, 'starts with:', key?.substring(0,10));
     if(!key) return kws;
     try{
-      const prompt=`You are helping filter keywords extracted from a medical school lecture.
+      const prompt=`You are helping filter keywords extracted from a medical school lecture so they can be used to search for relevant Anki flashcards.
+
+LECTURE: "${lectureName}" (Module: ${lectureModule})
+
 Here is the list of candidate keywords:
 ${kws.join(', ')}
 
-Return ONLY a JSON array of strings containing keywords that are specific medical, biochemical, physiological, anatomical, or scientific terms.
+Your job is to keep ONLY keywords that are specific enough to this particular lecture that searching for them would reliably find cards relevant to THIS lecture and not cards from many other unrelated lectures.
 
-Keep: disease names, enzyme names, metabolic pathways, molecules, organs when used in a specific medical context, medical abbreviations (NADH, FADH, GSD1 etc), specific conditions, transporters, receptors.
+Keep: terms that are central to this lecture's specific topic — specific molecules, pathways, enzymes, conditions, or mechanisms that are closely associated with "${lectureName}".
 
-Remove: generic English adjectives (elevated, different, normal, large, high, toxic, persistent, incomplete, excess, defective, major, specific), common verbs, non-technical nouns (idea, step, phase, history, note, example, food, diet, baby, child), and any word that could appear in non-medical writing.
+Remove:
+- Generic medical terms that appear across many different lectures (e.g. "enzyme", "liver", "muscle", "brain", "protein", "energy", "cycle", "synthesis", "disease", "deficiency" are too broad)
+- Terms that are medically valid but not specific to this lecture's topic
+- Generic adjectives, verbs, and non-technical words
 
-When in doubt, exclude. JSON array only, no markdown, no explanation.`;
+Ask yourself: "If a student searched for this word, would most of the results be about ${lectureName}?" If not, exclude it.
+
+JSON array only, no markdown, no explanation.`;
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
@@ -517,8 +537,7 @@ When in doubt, exclude. JSON array only, no markdown, no explanation.`;
     setExtractStatus(`Extracting keywords from ${filename}...`);
     const rawKws=extractKeywords(text,genericWords);
     setExtractStatus(`Filtering to medical terms (${rawKws.length} candidates)...`);
-    const medicalKws=await filterToMedicalTerms(rawKws);
-    let added=0;
+    const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module);
     for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
@@ -533,7 +552,7 @@ When in doubt, exclude. JSON array only, no markdown, no explanation.`;
   async function handleTextExtract(text){
     setExtractStatus('Extracting and filtering keywords...');
     const rawKws=extractKeywords(text,genericWords);
-    const medicalKws=await filterToMedicalTerms(rawKws);
+    const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module);
     for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
@@ -637,7 +656,7 @@ function ConfirmModal({seededCount,candidateCount,onConfirm,onCancel}){
   );
 }
 
-function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompletions,lectureReviewCounts,setLectureReviewCounts,getLectureStatus,genericWords,onBack}){
+function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompletions,lectureReviewCounts,setLectureReviewCounts,getLectureStatus,genericWords,loadingCards,onBack}){
   const [selLec,setSelLec]=useState(null);
   const [queue,setQueue]=useState([]);
   const [reviews,setReviews]=useState({});
@@ -809,6 +828,10 @@ Only include cards that truly belong. JSON array only, no markdown.`;
           <i class="ti ti-arrow-left"/> Setup
         </button>
         <h2 style={{flex:1}}>Review session</h2>
+        {loadingCards
+          ?<span class="badge b-warn"><i class="ti ti-loader"/> Loading {cards.length.toLocaleString()} cards...</span>
+          :<span class="badge b-gray"><i class="ti ti-database"/> {cards.length.toLocaleString()} cards loaded</span>
+        }
         <span class="badge b-acc"><i class="ti ti-user"/> {reviewer}</span>
         <button onClick={exportResults}><i class="ti ti-download"/> Export approved tags</button>
       </div>
