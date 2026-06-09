@@ -100,7 +100,7 @@ function extractKeywords(text, genericWords=new Set()){
   // Keep words that: appear 2+ times, aren't in base stop words, aren't generic across cards
   return [...new Set(
     Object.entries(freq)
-      .filter(([w,count])=>count>=2&&!BASE_STOP_WORDS.has(w)&&!genericWords.has(w))
+      .filter(([w,count])=>count>=3&&!BASE_STOP_WORDS.has(w)&&!genericWords.has(w))
       .sort((a,b)=>b[1]-a[1])
       .map(([w])=>w)
   )];
@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v26</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v27</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -489,41 +489,11 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
     setKeywords([]);
   }
 
+  const MEDICAL_STOP_WORDS=new Set(['enzyme','protein','cycle','synthesis','disease','deficiency','energy','storage','muscle','liver','brain','cell','cells','body','blood','tissue','organ','organs','acid','acids','amino','fatty','lipid','fats','membrane','matrix','pathway','pathways','process','processes','reaction','reactions','product','products','function','functions','level','levels','rate','rates','factor','factors','type','types','form','forms','role','mechanism','mechanisms','signal','signals','system','systems','complex','normal','elevated','increased','decreased','high','low','large','small','major','minor','primary','secondary','common','rare','specific','general','important','result','results','cause','causes','effect','effects','lead','leads','require','requires','involve','involves','produce','produces','occur','occurs','convert','converts','inhibit','inhibits','activate','activates','regulate','regulates','transport','transports','release','releases','absorb','absorbs','dietary','osmotic','hereditary','absorbed','apical','intestinal','matrix','branched','intermediate','intermediates','production','conversion','degradation','oxidation','starvation','anaerobic','treatment','synthesis','structure','structures','molecule','molecules','substrate','substrates','precursor','precursors','inactive','active','excess','defect','defective','step','steps','phase','phases']);
+
   async function filterToMedicalTerms(kws, lectureName, lectureModule){
-    const key=apiKeyRef.current;
-    console.log('API key length:', key?.length, 'starts with:', key?.substring(0,10));
-    if(!key) return kws;
-    try{
-      const prompt=`You are helping filter keywords extracted from a medical school lecture to use as Anki flashcard search terms.
-
-LECTURE: "${lectureName}" (Module: ${lectureModule})
-
-Candidate keywords:
-${kws.join(', ')}
-
-Keep keywords that meet BOTH criteria:
-1. They are specific medical, biochemical, physiological, or scientific terms (not generic English words)
-2. They are relevant to the topic of "${lectureName}" — meaning a student studying this lecture would reasonably encounter this term
-
-Remove:
-- Generic English words, adjectives, verbs (elevated, different, normal, large, absorbed, matrix, hereditary, dietary, osmotic)
-- Extremely broad medical terms that appear in almost every medical lecture (enzyme, protein, cycle, synthesis, disease, deficiency, energy, muscle, liver, brain, storage)
-- Non-technical words that slipped through (idea, step, note, food, diet, baby, child, history, example)
-
-Keep specific molecules, pathways, conditions, transporters, enzymes named after their function or substrate, and medical abbreviations relevant to this topic.
-
-JSON array of kept keywords only, no markdown, no explanation.`;
-      const res=await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})
-      });
-      const data=await res.json();
-      const text=data.content?.[0]?.text||'[]';
-      return JSON.parse(text.replace(/```json|```/g,'').trim());
-    }catch(e){
-      return kws;
-    }
+    // Pure algorithmic filter — no Claude API call needed
+    return kws.filter(w=>!MEDICAL_STOP_WORDS.has(w.toLowerCase()));
   }
 
   async function handleFileExtract(text,filename){
