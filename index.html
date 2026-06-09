@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v25</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v26</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -494,25 +494,25 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
     console.log('API key length:', key?.length, 'starts with:', key?.substring(0,10));
     if(!key) return kws;
     try{
-      const prompt=`You are helping filter keywords extracted from a medical school lecture so they can be used to search for relevant Anki flashcards.
+      const prompt=`You are helping filter keywords extracted from a medical school lecture to use as Anki flashcard search terms.
 
 LECTURE: "${lectureName}" (Module: ${lectureModule})
 
-Here is the list of candidate keywords:
+Candidate keywords:
 ${kws.join(', ')}
 
-Your job is to keep ONLY keywords that are specific enough to this particular lecture that searching for them would reliably find cards relevant to THIS lecture and not cards from many other unrelated lectures.
-
-Keep: terms that are central to this lecture's specific topic — specific molecules, pathways, enzymes, conditions, or mechanisms that are closely associated with "${lectureName}".
+Keep keywords that meet BOTH criteria:
+1. They are specific medical, biochemical, physiological, or scientific terms (not generic English words)
+2. They are relevant to the topic of "${lectureName}" — meaning a student studying this lecture would reasonably encounter this term
 
 Remove:
-- Generic medical terms that appear across many different lectures (e.g. "enzyme", "liver", "muscle", "brain", "protein", "energy", "cycle", "synthesis", "disease", "deficiency" are too broad)
-- Terms that are medically valid but not specific to this lecture's topic
-- Generic adjectives, verbs, and non-technical words
+- Generic English words, adjectives, verbs (elevated, different, normal, large, absorbed, matrix, hereditary, dietary, osmotic)
+- Extremely broad medical terms that appear in almost every medical lecture (enzyme, protein, cycle, synthesis, disease, deficiency, energy, muscle, liver, brain, storage)
+- Non-technical words that slipped through (idea, step, note, food, diet, baby, child, history, example)
 
-Ask yourself: "If a student searched for this word, would most of the results be about ${lectureName}?" If not, exclude it.
+Keep specific molecules, pathways, conditions, transporters, enzymes named after their function or substrate, and medical abbreviations relevant to this topic.
 
-JSON array only, no markdown, no explanation.`;
+JSON array of kept keywords only, no markdown, no explanation.`;
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
