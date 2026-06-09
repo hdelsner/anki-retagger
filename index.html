@@ -474,6 +474,12 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,onCandidateCount}){
     setKeywords(p=>p.filter(k=>k.id!==id));
   }
 
+  async function clearAllKeywords(){
+    if(!confirm(`Clear all ${keywords.length} keywords for this lecture?`)) return;
+    await db.from('keywords').delete().eq('lecture_id',lecture.id);
+    setKeywords([]);
+  }
+
   async function handleFileExtract(text,filename){
     const kws=extractKeywords(text,genericWords);
     let added=0;
@@ -506,6 +512,7 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,onCandidateCount}){
           <i class="ti ti-key" style={{color:'var(--acc)'}}/>
           Shared keyword list
           <span class="badge b-acc" style={{fontSize:11}}>{keywords.length} keywords</span>
+          {keywords.length>0&&<button onClick={clearAllKeywords} style={{border:'none',background:'none',color:'var(--err)',fontSize:12,padding:'0 4px',cursor:'pointer'}}>Clear all</button>}
         </label>
         <div style={{display:'flex',gap:6,marginBottom:'0.5rem'}}>
           <input type="text" value={newKw} onChange={e=>setNewKw(e.target.value)} placeholder="Type a keyword and press Enter..." onKeyDown={e=>{if(e.key==='Enter'){addKeyword(newKw);setNewKw('')}}} style={{flex:1}}/>
@@ -604,6 +611,9 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   const [seededCount,setSeededCount]=useState(0);
   const [candidateCount,setCandidateCount]=useState(0);
   const [showConfirm,setShowConfirm]=useState(false);
+  const [editingLecId,setEditingLecId]=useState(null);
+  const [editLecName,setEditLecName]=useState('');
+  const [editLecMod,setEditLecMod]=useState('');
   const modules=[...new Set(lectures.map(l=>l.module))];
 
   const statusCounts={
@@ -613,6 +623,26 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   };
 
   useEffect(()=>{if(selLec) loadReviews();},[selLec]);
+
+  async function saveLectureEdit(id){
+    if(!editLecName.trim()||!editLecMod.trim()) return;
+    await db.from('lectures').update({name:editLecName,module:editLecMod}).eq('id',id);
+    setLectures(p=>p.map(l=>l.id===id?{...l,name:editLecName,module:editLecMod}:l));
+    if(selLec?.id===id) setSelLec(p=>({...p,name:editLecName,module:editLecMod}));
+    setEditingLecId(null);
+  }
+
+  async function deleteLectureFromReview(id,name){
+    if(!confirm(`Delete lecture "${name}"? This will also delete all reviews and keywords for this lecture.`)) return;
+    await Promise.all([
+      db.from('reviews').delete().eq('lecture_id',id),
+      db.from('keywords').delete().eq('lecture_id',id),
+      db.from('lecture_completions').delete().eq('lecture_id',id),
+    ]);
+    await db.from('lectures').delete().eq('id',id);
+    setLectures(p=>p.filter(l=>l.id!==id));
+    if(selLec?.id===id){setSelLec(null);setQueue([]);}
+  }
 
   async function loadReviews(){
     const{data}=await db.from('reviews').select('*').eq('lecture_id',selLec.id);
@@ -770,14 +800,32 @@ Only include cards that truly belong. JSON array only, no markdown.`;
             <div style={{maxHeight:'calc(100vh - 320px)',overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
               {filteredLectures.map(l=>{
                 const active=selLec?.id===l.id;
-                return(
-                  <button key={l.id} onClick={()=>{setSelLec(l);setQueue([]);setProgress({step:'',pct:0})}} style={{textAlign:'left',padding:'7px 10px',borderRadius:'var(--rad)',border:active?'1.5px solid var(--acc)':'0.5px solid var(--bdr)',background:active?'var(--accL)':'transparent',color:active?'var(--accT)':'var(--txt1)',fontSize:13,display:'flex',alignItems:'center',gap:8}}>
-                    <StatusDot lec={l}/>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:active?500:400,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{l.name}</div>
-                      <div style={{fontSize:11,color:active?'var(--acc)':'var(--txt2)'}}>{l.module}</div>
+                if(editingLecId===l.id) return(
+                  <div key={l.id} style={{display:'flex',flexDirection:'column',gap:4,padding:'7px 8px',background:'var(--accL)',borderRadius:'var(--rad)',border:'1.5px solid var(--acc)'}}>
+                    <input type="text" value={editLecMod} onChange={e=>setEditLecMod(e.target.value)} style={{fontSize:11,padding:'3px 6px'}} placeholder="Module"/>
+                    <input type="text" value={editLecName} onChange={e=>setEditLecName(e.target.value)} style={{fontSize:12,padding:'3px 6px'}} placeholder="Lecture name" onKeyDown={e=>{if(e.key==='Enter') saveLectureEdit(l.id)}}/>
+                    <div style={{display:'flex',gap:4}}>
+                      <button onClick={()=>saveLectureEdit(l.id)} class="ok" style={{flex:1,padding:'3px',fontSize:11}}>Save</button>
+                      <button onClick={()=>setEditingLecId(null)} style={{flex:1,padding:'3px',fontSize:11}}>Cancel</button>
                     </div>
-                  </button>
+                  </div>
+                );
+                return(
+                  <div key={l.id} style={{display:'flex',alignItems:'center',gap:2,borderRadius:'var(--rad)',border:active?'1.5px solid var(--acc)':'0.5px solid var(--bdr)',background:active?'var(--accL)':'transparent'}}>
+                    <button onClick={()=>{setSelLec(l);setQueue([]);setProgress({step:'',pct:0})}} style={{textAlign:'left',padding:'7px 8px',flex:1,border:'none',background:'none',color:active?'var(--accT)':'var(--txt1)',fontSize:13,display:'flex',alignItems:'center',gap:6,borderRadius:'var(--rad)'}}>
+                      <StatusDot lec={l}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:active?500:400,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{l.name}</div>
+                        <div style={{fontSize:11,color:active?'var(--acc)':'var(--txt2)'}}>{l.module}</div>
+                      </div>
+                    </button>
+                    <button onClick={()=>{setEditingLecId(l.id);setEditLecName(l.name);setEditLecMod(l.module)}} style={{border:'none',background:'none',color:'var(--acc)',padding:'4px 4px',fontSize:12}} title="Rename">
+                      <i class="ti ti-pencil"/>
+                    </button>
+                    <button onClick={()=>deleteLectureFromReview(l.id,l.name)} style={{border:'none',background:'none',color:'var(--err)',padding:'4px 6px',fontSize:12}} title="Delete">
+                      <i class="ti ti-trash"/>
+                    </button>
+                  </div>
                 );
               })}
             </div>
