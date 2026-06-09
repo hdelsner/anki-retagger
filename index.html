@@ -433,7 +433,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
   );
 }
 
-function KeywordPanel({lecture,reviewer,cards,genericWords,onCandidateCount}){
+function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCount}){
   const [keywords,setKeywords]=useState([]);
   const [newKw,setNewKw]=useState('');
   const [extractStatus,setExtractStatus]=useState('');
@@ -480,29 +480,60 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,onCandidateCount}){
     setKeywords([]);
   }
 
+  async function filterToMedicalTerms(kws, apiKey){
+    if(!apiKey) return kws;
+    try{
+      const prompt=`You are helping filter keywords extracted from a medical school lecture.
+Here is the list of candidate keywords:
+${kws.join(', ')}
+
+Return ONLY a JSON array of strings containing the keywords that are specific medical, biochemical, physiological, or scientific terms.
+Remove generic English words, common verbs, adjectives, and non-technical terms.
+Keep abbreviations like NADH, FADH, GSD1 if they are medical.
+JSON array only, no markdown, no explanation.`;
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})
+      });
+      const data=await res.json();
+      const text=data.content?.[0]?.text||'[]';
+      return JSON.parse(text.replace(/```json|```/g,'').trim());
+    }catch(e){
+      return kws;
+    }
+  }
+
   async function handleFileExtract(text,filename){
-    const kws=extractKeywords(text,genericWords);
+    setExtractStatus(`Extracting keywords from ${filename}...`);
+    const rawKws=extractKeywords(text,genericWords);
+    setExtractStatus(`Filtering to medical terms (${rawKws.length} candidates)...`);
+    const medicalKws=await filterToMedicalTerms(rawKws,apiKey);
     let added=0;
-    for(const kw of kws){
+    for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
       const{error}=await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'});
       if(!error) added++;
     }
     await loadKeywords();
-    setExtractStatus(`Added ${added} keywords from ${filename}`);
-    setTimeout(()=>setExtractStatus(''),4000);
+    setExtractStatus(`Added ${added} medical keywords from ${filename} (filtered from ${rawKws.length})`);
+    setTimeout(()=>setExtractStatus(''),6000);
     return added;
   }
 
   async function handleTextExtract(text){
-    const kws=extractKeywords(text,genericWords);
-    for(const kw of kws){
+    setExtractStatus('Extracting and filtering keywords...');
+    const rawKws=extractKeywords(text,genericWords);
+    const medicalKws=await filterToMedicalTerms(rawKws,apiKey);
+    for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
       await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'});
     }
     await loadKeywords();
+    setExtractStatus(`Done — added ${medicalKws.length} medical keywords (filtered from ${rawKws.length})`);
+    setTimeout(()=>setExtractStatus(''),6000);
   }
 
   return(
@@ -860,7 +891,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                   <i class="ti ti-circle-check"/> Marked complete by {completions[selLec.id].completed_by}
                 </div>}
 
-                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
+                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} apiKey={apiKey} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
 
                 <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
                   <div style={{fontSize:13,color:'var(--txt2)'}}>
