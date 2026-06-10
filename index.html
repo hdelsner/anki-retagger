@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v36</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v37</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -685,7 +685,14 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
     complete:lectures.filter(l=>getLectureStatus(l)==='complete').length,
   };
 
-  useEffect(()=>{if(selLec){loadReviews();loadExclusionKeywords();loadQueue();}},[selLec]);
+  const [reviewedCards,setReviewedCards]=useState([]);
+
+  useEffect(()=>{if(selLec){loadReviews();loadExclusionKeywords();loadQueue();loadReviewedCards();}},[selLec]);
+
+  async function loadReviewedCards(){
+    const{data}=await db.from('reviews').select('*, cards(*)').eq('lecture_id',selLec.id).order('reviewed_at',{ascending:false});
+    setReviewedCards(data||[]);
+  }
 
   async function loadExclusionKeywords(){
     const{data}=await db.from('exclusion_keywords').select('*').eq('lecture_id',selLec.id).order('added_at');
@@ -845,6 +852,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     }
     const newReviews={...reviews,[card.id]:payload};
     setReviews(newReviews);
+    loadReviewedCards();
     // Advance to next card in pending queue
     if(idx<pendingQueue.length-1) setIdx(i=>i+1);
   }
@@ -1024,7 +1032,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                       Pending <span class="badge b-gray" style={{fontSize:11,marginLeft:4}}>{visibleQueue.filter(c=>!reviews[c.id]).length}</span>
                     </button>
                     <button onClick={()=>{setReviewTab('reviewed');setExpandedCard(null)}} style={{border:'none',background:'none',padding:'4px 0',fontWeight:reviewTab==='reviewed'?500:400,color:reviewTab==='reviewed'?'var(--acc)':'var(--txt2)',borderBottom:reviewTab==='reviewed'?'2px solid var(--acc)':'none',borderRadius:0,fontSize:14}}>
-                      Reviewed <span class="badge b-gray" style={{fontSize:11,marginLeft:4}}>{Object.values(reviews).filter(r=>r.lecture_id===selLec?.id).length}</span>
+                      Reviewed <span class="badge b-gray" style={{fontSize:11,marginLeft:4}}>{reviewedCards.length}</span>
                     </button>
                   </div>
 
@@ -1084,18 +1092,19 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                   {/* Reviewed tab — list view */}
                   {reviewTab==='reviewed'&&!expandedCard&&(
                     <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:500,overflowY:'auto'}}>
-                      {visibleQueue.filter(c=>reviews[c.id]).length===0&&(
+                      {reviewedCards.length===0&&(
                         <p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic',padding:'1rem 0'}}>No cards reviewed yet.</p>
                       )}
-                      {visibleQueue.filter(c=>reviews[c.id]).map(c=>{
-                        const rev=reviews[c.id];
+                      {reviewedCards.map(r=>{
+                        const card=r.cards;
+                        if(!card) return null;
                         return(
-                          <div key={c.id} onClick={()=>setExpandedCard(c)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--bg2)',borderRadius:'var(--rad)',cursor:'pointer',border:'0.5px solid var(--bdr)'}} >
-                            <span class={`badge ${rev.decision==='approved'?'b-ok':'b-err'}`} style={{flexShrink:0,fontSize:11}}>
-                              {rev.decision==='approved'?'✓':'✗'}
+                          <div key={r.id} onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--bg2)',borderRadius:'var(--rad)',cursor:'pointer',border:'0.5px solid var(--bdr)'}}>
+                            <span class={`badge ${r.decision==='approved'?'b-ok':'b-err'}`} style={{flexShrink:0,fontSize:11}}>
+                              {r.decision==='approved'?'✓':'✗'}
                             </span>
-                            <span style={{fontSize:13,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.front}</span>
-                            <span style={{fontSize:11,color:'var(--txt2)',flexShrink:0}}>{rev.reviewed_by}</span>
+                            <span style={{fontSize:13,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{card.front}</span>
+                            <span style={{fontSize:11,color:'var(--txt2)',flexShrink:0}}>{r.reviewed_by}</span>
                             <i class="ti ti-chevron-right" style={{color:'var(--txt2)',flexShrink:0}}/>
                           </div>
                         );
@@ -1110,13 +1119,9 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                         <i class="ti ti-arrow-left"/> Back to list
                       </button>
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
-                        <span class={`badge ${reviews[expandedCard.id]?.decision==='approved'?'b-ok':'b-err'}`}>
-                          {reviews[expandedCard.id]?.decision} by {reviews[expandedCard.id]?.reviewed_by}
+                        <span class={`badge ${expandedCard.review?.decision==='approved'?'b-ok':'b-err'}`}>
+                          {expandedCard.review?.decision} by {expandedCard.review?.reviewed_by}
                         </span>
-                        {expandedCard.confidence==='seeded'
-                          ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
-                          :<span class={`badge ${expandedCard.confidence==='high'?'b-ok':expandedCard.confidence==='medium'?'b-acc':'b-gray'}`}>{expandedCard.confidence} confidence</span>
-                        }
                       </div>
                       <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
                         <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Front</p>
@@ -1126,15 +1131,12 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                         <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Back</p>
                         <p style={{fontSize:15,lineHeight:1.6}}>{expandedCard.back}</p>
                       </div>
-                      <div style={{background:'var(--accL)',borderRadius:'var(--rad)',padding:'0.75rem',marginBottom:'1rem',fontSize:13,color:'var(--accT)'}}>
-                        <i class="ti ti-info-circle"/> {expandedCard.reason||'No reason provided'}
-                      </div>
                       <p style={{fontSize:13,color:'var(--txt2)',marginBottom:'0.5rem'}}>Change decision:</p>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-                        <button class="ok" onClick={()=>{decide(expandedCard,'approved');setExpandedCard(null);setReviewTab('reviewed')}} style={{padding:'10px'}}>
+                        <button class="ok" onClick={()=>{decide({...expandedCard,id:expandedCard.id},'approved');setExpandedCard(null);loadReviewedCards();}} style={{padding:'10px'}}>
                           <i class="ti ti-check"/> Approve
                         </button>
-                        <button class="err" onClick={()=>{decide(expandedCard,'rejected');setExpandedCard(null);setReviewTab('reviewed')}} style={{padding:'10px'}}>
+                        <button class="err" onClick={()=>{decide({...expandedCard,id:expandedCard.id},'rejected');setExpandedCard(null);loadReviewedCards();}} style={{padding:'10px'}}>
                           <i class="ti ti-x"/> Reject
                         </button>
                       </div>
