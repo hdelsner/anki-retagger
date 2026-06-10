@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v35</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v36</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -668,6 +668,8 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   const [editLecName,setEditLecName]=useState('');
   const [editLecMod,setEditLecMod]=useState('');
   const [exclusionKeywords,setExclusionKeywords]=useState([]);
+  const [reviewTab,setReviewTab]=useState('pending');
+  const [expandedCard,setExpandedCard]=useState(null);
   const modules=[...new Set(lectures.map(l=>l.module))];
 
   // Live queue filtered by exclusion keywords
@@ -843,10 +845,8 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     }
     const newReviews={...reviews,[card.id]:payload};
     setReviews(newReviews);
-    // Advance to next unreviewed card in visible queue
-    const nextIdx=visibleQueue.findIndex((c,i)=>i>idx&&!newReviews[c.id]);
-    if(nextIdx>=0) setIdx(nextIdx);
-    else setIdx(i=>Math.min(visibleQueue.length-1,i+1));
+    // Advance to next card in pending queue
+    if(idx<pendingQueue.length-1) setIdx(i=>i+1);
   }
 
   async function markComplete(){
@@ -879,7 +879,8 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     return modOk&&stOk;
   });
 
-  const currentCard=visibleQueue[idx];
+  const pendingQueue=visibleQueue.filter(c=>!reviews[c.id]);
+  const currentCard=pendingQueue[idx];
   const approvedCount=Object.values(reviews).filter(r=>r.decision==='approved'&&r.lecture_id===selLec?.id).length;
   const rejectedCount=Object.values(reviews).filter(r=>r.decision==='rejected'&&r.lecture_id===selLec?.id).length;
   const isComplete=selLec&&completions[selLec.id];
@@ -1015,49 +1016,137 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                 )}
               </div>
 
-              {visibleQueue.length>0&&currentCard&&(
+              {visibleQueue.length>0&&(
                 <div class="card">
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
-                    <h3 style={{fontSize:15}}>Card {idx+1} of {visibleQueue.length}</h3>
-                    <div style={{display:'flex',gap:6}}>
-                      {currentCard.confidence==='seeded'
-                        ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
-                        :<span class={`badge ${currentCard.confidence==='high'?'b-ok':currentCard.confidence==='medium'?'b-acc':'b-gray'}`}>{currentCard.confidence} confidence</span>
-                      }
-                      {reviews[currentCard.id]&&<span class={`badge ${reviews[currentCard.id].decision==='approved'?'b-ok':'b-err'}`}>{reviews[currentCard.id].decision}</span>}
+                  {/* Tab headers */}
+                  <div style={{display:'flex',gap:'1.5rem',borderBottom:'0.5px solid var(--bdr)',marginBottom:'1rem',paddingBottom:'0.75rem'}}>
+                    <button onClick={()=>{setReviewTab('pending');setExpandedCard(null)}} style={{border:'none',background:'none',padding:'4px 0',fontWeight:reviewTab==='pending'?500:400,color:reviewTab==='pending'?'var(--acc)':'var(--txt2)',borderBottom:reviewTab==='pending'?'2px solid var(--acc)':'none',borderRadius:0,fontSize:14}}>
+                      Pending <span class="badge b-gray" style={{fontSize:11,marginLeft:4}}>{visibleQueue.filter(c=>!reviews[c.id]).length}</span>
+                    </button>
+                    <button onClick={()=>{setReviewTab('reviewed');setExpandedCard(null)}} style={{border:'none',background:'none',padding:'4px 0',fontWeight:reviewTab==='reviewed'?500:400,color:reviewTab==='reviewed'?'var(--acc)':'var(--txt2)',borderBottom:reviewTab==='reviewed'?'2px solid var(--acc)':'none',borderRadius:0,fontSize:14}}>
+                      Reviewed <span class="badge b-gray" style={{fontSize:11,marginLeft:4}}>{Object.values(reviews).filter(r=>r.lecture_id===selLec?.id).length}</span>
+                    </button>
+                  </div>
+
+                  {/* Pending tab */}
+                  {reviewTab==='pending'&&currentCard&&<>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                      <h3 style={{fontSize:15}}>Card {idx+1} of {pendingQueue.length} pending</h3>
+                      <div style={{display:'flex',gap:6}}>
+                        {currentCard.confidence==='seeded'
+                          ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
+                          :<span class={`badge ${currentCard.confidence==='high'?'b-ok':currentCard.confidence==='medium'?'b-acc':'b-gray'}`}>{currentCard.confidence} confidence</span>
+                        }
+                        {reviews[currentCard.id]&&<span class={`badge ${reviews[currentCard.id].decision==='approved'?'b-ok':'b-err'}`}>{reviews[currentCard.id].decision}</span>}
+                      </div>
                     </div>
-                  </div>
-                  <div class="pbar" style={{marginBottom:'1rem'}}>
-                    <div class="pfill" style={{width:`${Math.round(((idx+1)/visibleQueue.length)*100)}%`}}/>
-                  </div>
-                  <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
-                    <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Front</p>
-                    <p style={{fontSize:15,lineHeight:1.6}}>{currentCard.front}</p>
-                  </div>
-                  <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
-                    <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Back</p>
-                    <p style={{fontSize:15,lineHeight:1.6}}>{currentCard.back}</p>
-                  </div>
-                  <div style={{background:'var(--accL)',borderRadius:'var(--rad)',padding:'0.75rem',marginBottom:'1rem',fontSize:13,color:'var(--accT)'}}>
-                    <i class="ti ti-info-circle"/> {currentCard.reason||'No reason provided'}
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'0.75rem'}}>
-                    <button class="ok" onClick={()=>decide(currentCard,'approved')} style={{padding:'11px',fontSize:15}}>
-                      <i class="ti ti-check"/> Approve
-                    </button>
-                    <button class="err" onClick={()=>decide(currentCard,'rejected')} style={{padding:'11px',fontSize:15}}>
-                      <i class="ti ti-x"/> Reject
-                    </button>
-                  </div>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <button onClick={()=>setIdx(i=>Math.max(0,i-1))} disabled={idx===0}>
-                      <i class="ti ti-arrow-left"/> Previous
-                    </button>
-                    <span style={{color:'var(--txt2)',fontSize:12}}>{Math.round(((idx+1)/visibleQueue.length)*100)}% reviewed</span>
-                    <button onClick={()=>setIdx(i=>Math.min(visibleQueue.length-1,i+1))} disabled={idx===visibleQueue.length-1}>
-                      Next <i class="ti ti-arrow-right"/>
-                    </button>
-                  </div>
+                    <div class="pbar" style={{marginBottom:'1rem'}}>
+                      <div class="pfill" style={{width:`${Math.round((Object.values(reviews).filter(r=>r.lecture_id===selLec?.id).length/visibleQueue.length)*100)}%`}}/>
+                    </div>
+                    <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
+                      <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Front</p>
+                      <p style={{fontSize:15,lineHeight:1.6}}>{currentCard.front}</p>
+                    </div>
+                    <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
+                      <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Back</p>
+                      <p style={{fontSize:15,lineHeight:1.6}}>{currentCard.back}</p>
+                    </div>
+                    <div style={{background:'var(--accL)',borderRadius:'var(--rad)',padding:'0.75rem',marginBottom:'1rem',fontSize:13,color:'var(--accT)'}}>
+                      <i class="ti ti-info-circle"/> {currentCard.reason||'No reason provided'}
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'0.75rem'}}>
+                      <button class="ok" onClick={()=>decide(currentCard,'approved')} style={{padding:'11px',fontSize:15}}>
+                        <i class="ti ti-check"/> Approve
+                      </button>
+                      <button class="err" onClick={()=>decide(currentCard,'rejected')} style={{padding:'11px',fontSize:15}}>
+                        <i class="ti ti-x"/> Reject
+                      </button>
+                    </div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <button onClick={()=>setIdx(i=>Math.max(0,i-1))} disabled={idx===0}>
+                        <i class="ti ti-arrow-left"/> Previous
+                      </button>
+                      <span style={{color:'var(--txt2)',fontSize:12}}>{Math.round((Object.values(reviews).filter(r=>r.lecture_id===selLec?.id).length/visibleQueue.length)*100)}% reviewed</span>
+                      <button onClick={()=>setIdx(i=>Math.min(pendingQueue.length-1,i+1))} disabled={idx===pendingQueue.length-1}>
+                        Next <i class="ti ti-arrow-right"/>
+                      </button>
+                    </div>
+                  </>}
+
+                  {/* Pending tab — no cards left */}
+                  {reviewTab==='pending'&&!currentCard&&(
+                    <div style={{textAlign:'center',padding:'2rem',color:'var(--txt2)'}}>
+                      <i class="ti ti-circle-check" style={{fontSize:32,display:'block',marginBottom:'0.5rem',color:'var(--ok)'}}/>
+                      <p style={{fontSize:15}}>All cards reviewed!</p>
+                    </div>
+                  )}
+
+                  {/* Reviewed tab — list view */}
+                  {reviewTab==='reviewed'&&!expandedCard&&(
+                    <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:500,overflowY:'auto'}}>
+                      {visibleQueue.filter(c=>reviews[c.id]).length===0&&(
+                        <p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic',padding:'1rem 0'}}>No cards reviewed yet.</p>
+                      )}
+                      {visibleQueue.filter(c=>reviews[c.id]).map(c=>{
+                        const rev=reviews[c.id];
+                        return(
+                          <div key={c.id} onClick={()=>setExpandedCard(c)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--bg2)',borderRadius:'var(--rad)',cursor:'pointer',border:'0.5px solid var(--bdr)'}} >
+                            <span class={`badge ${rev.decision==='approved'?'b-ok':'b-err'}`} style={{flexShrink:0,fontSize:11}}>
+                              {rev.decision==='approved'?'✓':'✗'}
+                            </span>
+                            <span style={{fontSize:13,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.front}</span>
+                            <span style={{fontSize:11,color:'var(--txt2)',flexShrink:0}}>{rev.reviewed_by}</span>
+                            <i class="ti ti-chevron-right" style={{color:'var(--txt2)',flexShrink:0}}/>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Reviewed tab — expanded card */}
+                  {reviewTab==='reviewed'&&expandedCard&&(
+                    <div>
+                      <button onClick={()=>setExpandedCard(null)} style={{border:'none',background:'none',color:'var(--acc)',padding:'0 0 1rem 0',fontSize:13,cursor:'pointer'}}>
+                        <i class="ti ti-arrow-left"/> Back to list
+                      </button>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                        <span class={`badge ${reviews[expandedCard.id]?.decision==='approved'?'b-ok':'b-err'}`}>
+                          {reviews[expandedCard.id]?.decision} by {reviews[expandedCard.id]?.reviewed_by}
+                        </span>
+                        {expandedCard.confidence==='seeded'
+                          ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
+                          :<span class={`badge ${expandedCard.confidence==='high'?'b-ok':expandedCard.confidence==='medium'?'b-acc':'b-gray'}`}>{expandedCard.confidence} confidence</span>
+                        }
+                      </div>
+                      <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
+                        <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Front</p>
+                        <p style={{fontSize:15,lineHeight:1.6}}>{expandedCard.front}</p>
+                      </div>
+                      <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
+                        <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Back</p>
+                        <p style={{fontSize:15,lineHeight:1.6}}>{expandedCard.back}</p>
+                      </div>
+                      <div style={{background:'var(--accL)',borderRadius:'var(--rad)',padding:'0.75rem',marginBottom:'1rem',fontSize:13,color:'var(--accT)'}}>
+                        <i class="ti ti-info-circle"/> {expandedCard.reason||'No reason provided'}
+                      </div>
+                      <p style={{fontSize:13,color:'var(--txt2)',marginBottom:'0.5rem'}}>Change decision:</p>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                        <button class="ok" onClick={()=>{decide(expandedCard,'approved');setExpandedCard(null);setReviewTab('reviewed')}} style={{padding:'10px'}}>
+                          <i class="ti ti-check"/> Approve
+                        </button>
+                        <button class="err" onClick={()=>{decide(expandedCard,'rejected');setExpandedCard(null);setReviewTab('reviewed')}} style={{padding:'10px'}}>
+                          <i class="ti ti-x"/> Reject
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {visibleQueue.length===0&&!loading&&(
+                <div class="card" style={{textAlign:'center',padding:'2rem',color:'var(--txt2)'}}>
+                  <i class="ti ti-sparkles" style={{fontSize:32,display:'block',marginBottom:'0.5rem'}}/>
+                  <p style={{fontSize:15}}>Run analysis to find relevant cards</p>
                 </div>
               )}
             </>
