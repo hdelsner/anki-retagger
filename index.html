@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v31</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v35</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -440,9 +440,10 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
   );
 }
 
-function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCount}){
+function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCount,exclusionKeywords,onExclusionChange}){
   const [keywords,setKeywords]=useState([]);
   const [newKw,setNewKw]=useState('');
+  const [newExKw,setNewExKw]=useState('');
   const [extractStatus,setExtractStatus]=useState('');
   const apiKeyRef=useRef(apiKey);
   useEffect(()=>{apiKeyRef.current=apiKey;},[apiKey]);
@@ -458,13 +459,15 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
     });
     seeded.forEach(c=>seededIds.add(c.id));
     const kwList=keywords.map(k=>k.keyword.toLowerCase());
+    const exList=(exclusionKeywords||[]).map(k=>k.keyword.toLowerCase());
     const candidates=cards.filter(c=>{
       if(seededIds.has(c.id)) return false;
       const text=(c.front+' '+c.back).toLowerCase();
+      if(exList.some(ex=>text.includes(ex))) return false;
       return kwList.some(kw=>text.includes(kw));
     });
     onCandidateCount(seeded.length,candidates.length);
-  },[keywords,cards]);
+  },[keywords,exclusionKeywords,cards]);
 
   async function loadKeywords(){
     const{data}=await db.from('keywords').select('*').eq('lecture_id',lecture.id).order('added_at');
@@ -558,7 +561,34 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
         )}
       </div>
 
-      <div>
+      <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)'}}>
+        <label style={{marginBottom:'0.5rem',display:'flex',alignItems:'center',gap:6}}>
+          <i class="ti ti-ban" style={{color:'var(--err)'}}/>
+          Exclusion keywords
+          <span class="badge b-err" style={{fontSize:11}}>{(exclusionKeywords||[]).length} excluded</span>
+          <span style={{fontSize:11,color:'var(--txt2)'}}>— cards containing these words are filtered out</span>
+        </label>
+        <div style={{display:'flex',gap:6,marginBottom:'0.5rem'}}>
+          <input type="text" value={newExKw} onChange={e=>setNewExKw(e.target.value)} placeholder="Add exclusion term (e.g. pancreas, insulin)..." onKeyDown={e=>{if(e.key==='Enter'){onExclusionChange('add',newExKw,reviewer);setNewExKw('')}}} style={{flex:1}}/>
+          <button class="err" onClick={()=>{onExclusionChange('add',newExKw,reviewer);setNewExKw('')}} disabled={!newExKw.trim()} style={{padding:'8px 12px',whiteSpace:'nowrap'}}>
+            <i class="ti ti-plus"/> Add
+          </button>
+        </div>
+        {(exclusionKeywords||[]).length>0&&(
+          <div style={{background:'var(--errL)',borderRadius:'var(--rad)',padding:'0.75rem',display:'flex',flexWrap:'wrap',gap:2}}>
+            {(exclusionKeywords||[]).map(k=>(
+              <span key={k.id} style={{display:'inline-flex',alignItems:'center',gap:5,background:'#fff',color:'var(--err)',fontSize:12,padding:'3px 8px',borderRadius:20,margin:2,border:'0.5px solid var(--err)'}}>
+                {k.keyword}
+                <span style={{fontSize:10,opacity:.6}}>{k.added_by}</span>
+                <button onClick={()=>onExclusionChange('remove',k.id)} style={{border:'none',background:'none',color:'var(--err)',padding:0,fontSize:14,cursor:'pointer',opacity:.6}}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        {(exclusionKeywords||[]).length===0&&<p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic',padding:'0.25rem 0'}}>No exclusions yet — add terms to filter out irrelevant card clusters.</p>}
+      </div>
+
+      <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)'}}>
         <label style={{marginBottom:'0.5rem',display:'flex',alignItems:'center',gap:6}}>
           <i class="ti ti-file-text" style={{color:'var(--acc)'}}/>
           Extract keywords from lecture materials
@@ -637,7 +667,15 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   const [editingLecId,setEditingLecId]=useState(null);
   const [editLecName,setEditLecName]=useState('');
   const [editLecMod,setEditLecMod]=useState('');
+  const [exclusionKeywords,setExclusionKeywords]=useState([]);
   const modules=[...new Set(lectures.map(l=>l.module))];
+
+  // Live queue filtered by exclusion keywords
+  const visibleQueue=queue.filter(c=>{
+    if(exclusionKeywords.length===0) return true;
+    const text=(c.front+' '+c.back).toLowerCase();
+    return !exclusionKeywords.some(ex=>text.includes(ex.keyword.toLowerCase()));
+  });
 
   const statusCounts={
     notstarted:lectures.filter(l=>getLectureStatus(l)==='notstarted').length,
@@ -645,7 +683,32 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
     complete:lectures.filter(l=>getLectureStatus(l)==='complete').length,
   };
 
-  useEffect(()=>{if(selLec) loadReviews();},[selLec]);
+  useEffect(()=>{if(selLec){loadReviews();loadExclusionKeywords();loadQueue();}},[selLec]);
+
+  async function loadExclusionKeywords(){
+    const{data}=await db.from('exclusion_keywords').select('*').eq('lecture_id',selLec.id).order('added_at');
+    setExclusionKeywords(data||[]);
+  }
+
+  async function handleExclusionChange(action, value, addedBy){
+    if(action==='add'){
+      const clean=value.trim().toLowerCase();
+      if(!clean||exclusionKeywords.find(k=>k.keyword===clean)) return;
+      const{data,error}=await db.from('exclusion_keywords').insert({lecture_id:selLec.id,keyword:clean,added_by:addedBy}).select().single();
+      if(!error){
+        const newList=[...exclusionKeywords,data];
+        setExclusionKeywords(newList);
+        // Adjust idx if current card is now excluded
+        setIdx(i=>Math.min(i,Math.max(0,queue.filter(c=>{
+          const text=(c.front+' '+c.back).toLowerCase();
+          return !newList.some(ex=>text.includes(ex.keyword.toLowerCase()));
+        }).length-1)));
+      }
+    } else if(action==='remove'){
+      await db.from('exclusion_keywords').delete().eq('id',value);
+      setExclusionKeywords(p=>p.filter(k=>k.id!==value));
+    }
+  }
 
   async function saveLectureEdit(id){
     if(!editLecName.trim()||!editLecMod.trim()) return;
@@ -656,11 +719,13 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   }
 
   async function deleteLectureFromReview(id,name){
-    if(!confirm(`Delete lecture "${name}"? This will also delete all reviews and keywords for this lecture.`)) return;
+    if(!confirm(`Delete lecture "${name}"? This will also delete all reviews, keywords and queue items for this lecture.`)) return;
     await Promise.all([
       db.from('reviews').delete().eq('lecture_id',id),
       db.from('keywords').delete().eq('lecture_id',id),
+      db.from('exclusion_keywords').delete().eq('lecture_id',id),
       db.from('lecture_completions').delete().eq('lecture_id',id),
+      db.from('queue_items').delete().eq('lecture_id',id),
     ]);
     await db.from('lectures').delete().eq('id',id);
     setLectures(p=>p.filter(l=>l.id!==id));
@@ -670,6 +735,18 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   async function loadReviews(){
     const{data}=await db.from('reviews').select('*').eq('lecture_id',selLec.id);
     const map={};(data||[]).forEach(r=>{map[r.card_id]=r});setReviews(map);
+  }
+
+  async function loadQueue(){
+    const{data}=await db.from('queue_items').select('*, cards(*)').eq('lecture_id',selLec.id).order('added_at');
+    if(!data||data.length===0){setQueue([]);setIdx(0);return;}
+    const q=data.map(item=>({...item.cards,confidence:item.confidence,reason:item.reason,queue_item_id:item.id}));
+    setQueue(q);
+    // Find first unreviewed card
+    const{data:revData}=await db.from('reviews').select('card_id').eq('lecture_id',selLec.id);
+    const reviewedIds=new Set((revData||[]).map(r=>r.card_id));
+    const firstUnreviewed=q.findIndex(c=>!reviewedIds.has(c.id));
+    setIdx(firstUnreviewed>=0?firstUnreviewed:0);
   }
 
   async function runAnalysis(){
@@ -687,9 +764,13 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
     const{data:kws}=await db.from('keywords').select('*').eq('lecture_id',selLec.id);
     const kwList=(kws||[]).map(k=>k.keyword.toLowerCase());
 
+    const{data:exKws}=await db.from('exclusion_keywords').select('*').eq('lecture_id',selLec.id);
+    const exList=(exKws||[]).map(k=>k.keyword.toLowerCase());
+
     const candidates=cards.filter(c=>{
       if(seededIds.has(c.id)) return false;
       const text=(c.front+' '+c.back).toLowerCase();
+      if(exList.some(ex=>text.includes(ex))) return false;
       return kwList.some(kw=>text.includes(kw));
     });
 
@@ -704,6 +785,8 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
     for(let ci=0;ci<deepChunks.length;ci++){
       const chunk=deepChunks[ci];
       setProgress({step:`Analyzing chunk ${ci+1} of ${deepChunks.length}...`,pct:Math.round(5+((ci+1)/Math.max(deepChunks.length,1))*90)});
+      // Small delay between chunks to avoid rate limiting
+      if(ci>0) await new Promise(r=>setTimeout(r,500));
       try{
         const prompt=`You are helping medical students tag Anki flashcards to the correct lecture.
 LECTURE: "${selLec.name}" (Module: ${selLec.module})
@@ -718,15 +801,34 @@ Only include cards that truly belong. JSON array only, no markdown.`;
           body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:prompt}]})
         });
         const data=await res.json();
+        if(data.error){
+          console.warn(`Chunk ${ci+1} API error:`, data.error.message);
+          continue; // Skip this chunk rather than dumping cards
+        }
         const text=data.content?.[0]?.text||'[]';
         const hits=JSON.parse(text.replace(/```json|```/g,'').trim());
         hits.forEach(h=>{if(chunk[h.index]) finalQueue.push({...chunk[h.index],confidence:h.confidence,reason:h.reason})});
-      }catch(e){deepChunks[ci].forEach(c=>finalQueue.push({...c,confidence:'medium',reason:'Included due to analysis error'}));}
+      }catch(e){
+        console.warn(`Chunk ${ci+1} failed, skipping:`, e.message);
+        // Skip failed chunks rather than dumping unreviewed cards
+      }
     }
 
-    setProgress({step:`Done. ${finalQueue.length} cards ready for review.`,pct:100});
-    setQueue(finalQueue);
-    setIdx(0);
+    setProgress({step:`Done. Saving ${finalQueue.length} cards to queue...`,pct:95});
+
+    // Upsert new cards to persistent queue — existing cards are preserved due to unique constraint
+    const queueItems=finalQueue.map(c=>({
+      lecture_id:selLec.id,
+      card_id:c.id,
+      confidence:c.confidence,
+      reason:c.reason
+    }));
+    for(let i=0;i<queueItems.length;i+=100){
+      await db.from('queue_items').upsert(queueItems.slice(i,i+100),{onConflict:'lecture_id,card_id',ignoreDuplicates:true});
+    }
+
+    setProgress({step:`Done. ${finalQueue.length} cards analyzed — new ones added to queue.`,pct:100});
+    await loadQueue();
     setLoading(false);
   }
 
@@ -739,8 +841,12 @@ Only include cards that truly belong. JSON array only, no markdown.`;
       await db.from('reviews').insert(payload);
       setLectureReviewCounts(p=>({...p,[selLec.id]:(p[selLec.id]||0)+1}));
     }
-    setReviews(p=>({...p,[card.id]:payload}));
-    if(idx<queue.length-1) setIdx(i=>i+1);
+    const newReviews={...reviews,[card.id]:payload};
+    setReviews(newReviews);
+    // Advance to next unreviewed card in visible queue
+    const nextIdx=visibleQueue.findIndex((c,i)=>i>idx&&!newReviews[c.id]);
+    if(nextIdx>=0) setIdx(nextIdx);
+    else setIdx(i=>Math.min(visibleQueue.length-1,i+1));
   }
 
   async function markComplete(){
@@ -773,7 +879,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     return modOk&&stOk;
   });
 
-  const currentCard=queue[idx];
+  const currentCard=visibleQueue[idx];
   const approvedCount=Object.values(reviews).filter(r=>r.decision==='approved'&&r.lecture_id===selLec?.id).length;
   const rejectedCount=Object.values(reviews).filter(r=>r.decision==='rejected'&&r.lecture_id===selLec?.id).length;
   const isComplete=selLec&&completions[selLec.id];
@@ -839,7 +945,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                 );
                 return(
                   <div key={l.id} style={{display:'flex',alignItems:'center',gap:2,borderRadius:'var(--rad)',border:active?'1.5px solid var(--acc)':'0.5px solid var(--bdr)',background:active?'var(--accL)':'transparent'}}>
-                    <button onClick={()=>{setSelLec(l);setQueue([]);setProgress({step:'',pct:0})}} style={{textAlign:'left',padding:'7px 8px',flex:1,border:'none',background:'none',color:active?'var(--accT)':'var(--txt1)',fontSize:13,display:'flex',alignItems:'center',gap:6,borderRadius:'var(--rad)'}}>
+                    <button onClick={()=>{setSelLec(l);setQueue([]);setProgress({step:'',pct:0});setExclusionKeywords([]);setIdx(0)}} style={{textAlign:'left',padding:'7px 8px',flex:1,border:'none',background:'none',color:active?'var(--accT)':'var(--txt1)',fontSize:13,display:'flex',alignItems:'center',gap:6,borderRadius:'var(--rad)'}}>
                       <StatusDot lec={l}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontWeight:active?500:400,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{l.name}</div>
@@ -887,7 +993,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                   <i class="ti ti-circle-check"/> Marked complete by {completions[selLec.id].completed_by}
                 </div>}
 
-                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} apiKey={apiKey} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
+                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} apiKey={apiKey} exclusionKeywords={exclusionKeywords} onExclusionChange={handleExclusionChange} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
 
                 <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
                   <div style={{fontSize:13,color:'var(--txt2)'}}>
@@ -909,10 +1015,10 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                 )}
               </div>
 
-              {queue.length>0&&currentCard&&(
+              {visibleQueue.length>0&&currentCard&&(
                 <div class="card">
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
-                    <h3 style={{fontSize:15}}>Card {idx+1} of {queue.length}</h3>
+                    <h3 style={{fontSize:15}}>Card {idx+1} of {visibleQueue.length}</h3>
                     <div style={{display:'flex',gap:6}}>
                       {currentCard.confidence==='seeded'
                         ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
@@ -922,7 +1028,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                     </div>
                   </div>
                   <div class="pbar" style={{marginBottom:'1rem'}}>
-                    <div class="pfill" style={{width:`${Math.round(((idx+1)/queue.length)*100)}%`}}/>
+                    <div class="pfill" style={{width:`${Math.round(((idx+1)/visibleQueue.length)*100)}%`}}/>
                   </div>
                   <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'0.75rem'}}>
                     <p style={{fontSize:11,color:'var(--txt2)',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}}>Front</p>
@@ -947,8 +1053,8 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                     <button onClick={()=>setIdx(i=>Math.max(0,i-1))} disabled={idx===0}>
                       <i class="ti ti-arrow-left"/> Previous
                     </button>
-                    <span style={{color:'var(--txt2)',fontSize:12}}>{Math.round(((idx+1)/queue.length)*100)}% reviewed</span>
-                    <button onClick={()=>setIdx(i=>Math.min(queue.length-1,i+1))} disabled={idx===queue.length-1}>
+                    <span style={{color:'var(--txt2)',fontSize:12}}>{Math.round(((idx+1)/visibleQueue.length)*100)}% reviewed</span>
+                    <button onClick={()=>setIdx(i=>Math.min(visibleQueue.length-1,i+1))} disabled={idx===visibleQueue.length-1}>
                       Next <i class="ti ti-arrow-right"/>
                     </button>
                   </div>
