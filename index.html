@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v37</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v39</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -690,7 +690,7 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   useEffect(()=>{if(selLec){loadReviews();loadExclusionKeywords();loadQueue();loadReviewedCards();}},[selLec]);
 
   async function loadReviewedCards(){
-    const{data}=await db.from('reviews').select('*, cards(*)').eq('lecture_id',selLec.id).order('reviewed_at',{ascending:false});
+    const{data}=await db.from('reviews').select('*, cards(*)').eq('lecture_id',selLec.id).order('reviewed_at',{ascending:true});
     setReviewedCards(data||[]);
   }
 
@@ -852,6 +852,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     }
     const newReviews={...reviews,[card.id]:payload};
     setReviews(newReviews);
+    setReviewedCards(prev=>prev.map(r=>r.card_id===card.id?{...r,decision:payload.decision,reviewed_by:payload.reviewed_by}:r));
     loadReviewedCards();
     // Advance to next card in pending queue
     if(idx<pendingQueue.length-1) setIdx(i=>i+1);
@@ -1095,17 +1096,21 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                       {reviewedCards.length===0&&(
                         <p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic',padding:'1rem 0'}}>No cards reviewed yet.</p>
                       )}
-                      {reviewedCards.map(r=>{
+                      {reviewedCards.map((r,i)=>{
                         const card=r.cards;
                         if(!card) return null;
                         return(
-                          <div key={r.id} onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--bg2)',borderRadius:'var(--rad)',cursor:'pointer',border:'0.5px solid var(--bdr)'}}>
+                          <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'var(--bg2)',borderRadius:'var(--rad)',border:'0.5px solid var(--bdr)'}}>
+                            <span style={{fontSize:12,color:'var(--txt1)',flexShrink:0,minWidth:28,textAlign:'right',fontWeight:500}}>{i+1}.</span>
                             <span class={`badge ${r.decision==='approved'?'b-ok':'b-err'}`} style={{flexShrink:0,fontSize:11}}>
                               {r.decision==='approved'?'✓':'✗'}
                             </span>
-                            <span style={{fontSize:13,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{card.front}</span>
+                            <span onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} style={{fontSize:13,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',cursor:'pointer'}}>{card.front}</span>
                             <span style={{fontSize:11,color:'var(--txt2)',flexShrink:0}}>{r.reviewed_by}</span>
-                            <i class="ti ti-chevron-right" style={{color:'var(--txt2)',flexShrink:0}}/>
+                            <button onClick={()=>decide({...card},r.decision==='approved'?'rejected':'approved')} style={{flexShrink:0,padding:'3px 8px',fontSize:11,background:r.decision==='approved'?'var(--errL)':'var(--okL)',color:r.decision==='approved'?'var(--err)':'var(--ok)',border:`0.5px solid ${r.decision==='approved'?'var(--err)':'var(--ok)'}`,borderRadius:'var(--rad)'}}>
+                              {r.decision==='approved'?'Reject':'Approve'}
+                            </button>
+                            <i onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} class="ti ti-chevron-right" style={{color:'var(--txt2)',flexShrink:0,cursor:'pointer'}}/>
                           </div>
                         );
                       })}
