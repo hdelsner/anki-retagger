@@ -939,6 +939,8 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     await loadQueue();
     setLoading(false);
   }
+
+  async function decide(card,decision){
     const existing=reviews[card.id];
     const payload={card_id:card.id,lecture_id:selLec.id,decision,reviewed_by:reviewer,reviewed_at:new Date().toISOString()};
     if(existing){
