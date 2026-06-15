@@ -144,24 +144,31 @@ function CardDropZone({onCardsLoaded}){
     try{
       const text=await file.text();
       const allLines=text.trim().split('\n');
-      const lines=allLines.filter(l=>l.trim()&&!l.startsWith('#'));
-      // Detect columns from headers
-      const tagsHeader=allLines.find(l=>l.startsWith('#tags column:'));
-      const guidHeader=allLines.find(l=>l.startsWith('#guid column:'));
-      const tagsColIdx=tagsHeader?parseInt(tagsHeader.replace('#tags column:','').trim())-1:null;
-      const guidColIdx=guidHeader?parseInt(guidHeader.replace('#guid column:','').trim())-1:null;
-      // If guid is in column 1, front text shifts to column 2
-      const frontColIdx=guidColIdx===0?1:0;
-      const backColIdx=frontColIdx+1;
-      setStatus(`Parsing ${lines.length.toLocaleString()} lines...`);
+      const headerLines=allLines.filter(l=>l.startsWith('#'));
+      const guidHeader=headerLines.find(l=>l.startsWith('#guid column:'));
+      const hasGuid=!!guidHeader;
+      const dataLines=allLines.filter(l=>l.trim()&&!l.startsWith('#'));
+
+      setStatus(`Parsing ${dataLines.length.toLocaleString()} notes...`);
       await new Promise(r=>setTimeout(r,50));
-      const parsed=lines.map((line,i)=>{
-        const parts=line.split('\t');
-        const rawTags=tagsColIdx!==null?(parts[tagsColIdx]||''):(parts[parts.length-1]||'');
-        const tags=rawTags.trim().replace(/^"|"$/g,'');
-        const noteId=guidColIdx!==null?(parts[guidColIdx]||''):'';
-        return{anki_id:`card_${i}`,note_id:noteId,front:parts[frontColIdx]||'',back:parts[backColIdx]||'',existing_tags:tags};
-      }).filter(c=>c.front.trim());
+
+      const parsed=dataLines.map((line,i)=>{
+        const firstTabIdx=line.indexOf('\t');
+        if(firstTabIdx===-1) return null;
+        if(hasGuid){
+          // GUID is first field, front is second field
+          const noteId=line.substring(0,firstTabIdx).trim();
+          const rest=line.substring(firstTabIdx+1);
+          const secondTabIdx=rest.indexOf('\t');
+          const front=secondTabIdx!==-1?rest.substring(0,secondTabIdx).trim():rest.trim();
+          return{anki_id:`card_${i}`,note_id:noteId,front,back:'',existing_tags:''};
+        } else {
+          // No GUID, front is first field
+          const front=line.substring(0,firstTabIdx).trim();
+          return{anki_id:`card_${i}`,note_id:'',front,back:'',existing_tags:''};
+        }
+      }).filter(c=>c&&c.front.trim());
+
       setStatus(`Uploading ${parsed.length.toLocaleString()} cards...`);
       await new Promise(r=>setTimeout(r,50));
       const BATCH=100;
@@ -368,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v57</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v59</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
