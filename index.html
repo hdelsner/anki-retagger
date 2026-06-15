@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v64</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v65</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -575,6 +575,7 @@ JSON array of kept keywords only, no markdown, no explanation.`;
     setExtractStatus('Extracting and filtering keywords...');
     const rawKws=extractKeywords(text,genericWords);
     const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module, apiKeyRef.current);
+    for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
       await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'});
