@@ -145,16 +145,22 @@ function CardDropZone({onCardsLoaded}){
       const text=await file.text();
       const allLines=text.trim().split('\n');
       const lines=allLines.filter(l=>l.trim()&&!l.startsWith('#'));
-      // Detect tags column from header
+      // Detect columns from headers
       const tagsHeader=allLines.find(l=>l.startsWith('#tags column:'));
+      const guidHeader=allLines.find(l=>l.startsWith('#guid column:'));
       const tagsColIdx=tagsHeader?parseInt(tagsHeader.replace('#tags column:','').trim())-1:null;
+      const guidColIdx=guidHeader?parseInt(guidHeader.replace('#guid column:','').trim())-1:null;
+      // If guid is in column 1, front text shifts to column 2
+      const frontColIdx=guidColIdx===0?1:0;
+      const backColIdx=frontColIdx+1;
       setStatus(`Parsing ${lines.length.toLocaleString()} lines...`);
       await new Promise(r=>setTimeout(r,50));
       const parsed=lines.map((line,i)=>{
         const parts=line.split('\t');
         const rawTags=tagsColIdx!==null?(parts[tagsColIdx]||''):(parts[parts.length-1]||'');
         const tags=rawTags.trim().replace(/^"|"$/g,'');
-        return{anki_id:`card_${i}`,front:parts[0]||'',back:parts[1]||'',existing_tags:tags};
+        const noteId=guidColIdx!==null?(parts[guidColIdx]||''):'';
+        return{anki_id:`card_${i}`,note_id:noteId,front:parts[frontColIdx]||'',back:parts[backColIdx]||'',existing_tags:tags};
       }).filter(c=>c.front.trim());
       setStatus(`Uploading ${parsed.length.toLocaleString()} cards...`);
       await new Promise(r=>setTimeout(r,50));
@@ -362,7 +368,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v54</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v55</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -883,15 +889,24 @@ Only include cards that truly belong. JSON array only, no markdown.`;
 
   async function exportResults(){
     const{data}=await db.from('reviews').select('*, cards(*), lectures(*)').eq('decision','approved');
-    if(!data) return;
-    const lines=['card_front\ttag'];
+    if(!data||data.length===0){alert('No approved cards to export.');return;}
+    // Group by lecture
+    const byLecture={};
     data.forEach(r=>{
-      const tag=`AnkiHub_Optional::VPS_MM::${r.lectures.module}::${r.lectures.name}`;
-      lines.push(`${r.cards.front}\t${tag}`);
+      const lecName=`${r.lectures.module}::${r.lectures.name}`;
+      if(!byLecture[lecName]) byLecture[lecName]=[];
+      const noteId=r.cards?.note_id;
+      if(noteId) byLecture[lecName].push(noteId);
+    });
+    const lines=[];
+    Object.entries(byLecture).forEach(([lec,ids])=>{
+      lines.push(`# ${lec} (${ids.length} cards)`);
+      lines.push(`nid:${ids.join(',')}`);
+      lines.push('');
     });
     const blob=new Blob([lines.join('\n')],{type:'text/plain'});
     const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download='vps_anki_tags.txt';a.click();
+    const a=document.createElement('a');a.href=url;a.download='vps_anki_note_ids.txt';a.click();
   }
 
   const filteredLectures=lectures.filter(l=>{
