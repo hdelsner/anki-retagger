@@ -368,7 +368,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v56</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v57</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -891,13 +891,18 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     if(!selLec){alert('Please select a lecture first.');return;}
     const{data}=await db.from('reviews').select('*, cards(*), lectures(*)').eq('decision','approved').eq('lecture_id',selLec.id);
     if(!data||data.length===0){alert('No approved cards for this lecture.');return;}
-    const ids=data.map(r=>r.cards?.note_id).filter(Boolean);
-    if(ids.length===0){alert('No note IDs found — make sure cards were imported with the unique identifier included.');return;}
-    const tag=`AnkiHub_Optional::VPS_MM::${selLec.module}::${selLec.name}`;
-    const content=`# ${selLec.module}::${selLec.name} (${ids.length} cards)\n# Tag to add: ${tag}\nnid:${ids.join(',')}`;
-    const blob=new Blob([content],{type:'text/plain'});
+    const newTag=`AnkiHub_Optional::VPS_MM::${selLec.module}::${selLec.name}`;
+    const lines=['card_front\ttags'];
+    data.forEach(r=>{
+      const card=r.cards;
+      if(!card) return;
+      const originalTags=(card.existing_tags||'').trim().replace(/^"|"$/g,'');
+      const combinedTags=originalTags?`${originalTags} ${newTag}`:newTag;
+      lines.push(`${card.front}\t${combinedTags}`);
+    });
+    const blob=new Blob([lines.join('\n')],{type:'text/plain'});
     const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=`${selLec.name}_note_ids.txt`;a.click();
+    const a=document.createElement('a');a.href=url;a.download=`${selLec.name}_tags.txt`;a.click();
   }
 
   const filteredLectures=lectures.filter(l=>{
