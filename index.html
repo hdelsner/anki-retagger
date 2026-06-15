@@ -157,7 +157,7 @@ function CardDropZone({onCardsLoaded}){
         if(firstTabIdx===-1) return null;
         if(hasGuid){
           // GUID is first field, front is second field
-          const noteId=line.substring(0,firstTabIdx).trim();
+          const noteId=line.substring(0,firstTabIdx).trim().replace(/^"|"$/g,'');
           const rest=line.substring(firstTabIdx+1);
           const secondTabIdx=rest.indexOf('\t');
           const front=secondTabIdx!==-1?rest.substring(0,secondTabIdx).trim():rest.trim();
@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v61</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v64</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -519,20 +519,46 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
     setKeywords([]);
   }
 
-  const MEDICAL_STOP_WORDS=new Set(['enzyme','protein','cycle','synthesis','disease','deficiency','energy','storage','muscle','liver','brain','cell','cells','body','blood','tissue','organ','organs','acid','acids','amino','fatty','lipid','fats','membrane','matrix','pathway','pathways','process','processes','reaction','reactions','product','products','function','functions','level','levels','rate','rates','factor','factors','type','types','form','forms','role','mechanism','mechanisms','signal','signals','system','systems','complex','normal','elevated','increased','decreased','high','low','large','small','major','minor','primary','secondary','common','rare','specific','general','important','result','results','cause','causes','effect','effects','lead','leads','require','requires','involve','involves','produce','produces','occur','occurs','convert','converts','inhibit','inhibits','activate','activates','regulate','regulates','transport','transports','release','releases','absorb','absorbs','dietary','osmotic','hereditary','absorbed','apical','intestinal','matrix','branched','intermediate','intermediates','production','conversion','degradation','oxidation','starvation','anaerobic','treatment','structure','structures','molecule','molecules','substrate','substrates','precursor','precursors','inactive','active','excess','defect','defective','step','steps','phase','phases',
-  // Additional generic terms from testing
-  'eating','export','carbon','sugars','linkages','becomes','different','idea','moves','milk','generators','diet','water','must','mono','sugar','produced','termini','branches','rather','many','uses','example','defects','note','post','food','basic','regular','slow','feed','converting','making','learn','learned','board','boards','test','state','finally','another','forms','large','high','major','specific','place','still','baby','avoid','child','juice','skip','takes','gets','getsauto','also','into','from','their','this','that','with','have','been','were','will','would','could','should','when','where','what','which','about','after','before','during','through','between','other','some','more','most','then','than','over','under','only','same','just','also','such','both','each','very','well','back','even','much','also','need','make','take','give','come','know','think','call','keep','turn','show','play','move','live','work','mean','help','talk','last','read','seem','tell','feel','next','hard','real','stop','open','seem','done','said','away','near','follow','found','came','told','came','took','knew','felt','left','kept','held','sent','went','grew','drew','flew','blew','threw','bought','thought','brought','caught','taught','sought','fought','paid','laid','said','made','came','gave','took','knew','grew','drew','flew','blew','threw']);
+  const MEDICAL_STOP_WORDS=new Set(['enzyme','protein','cycle','synthesis','disease','deficiency','energy','storage','muscle','liver','brain','cell','cells','body','blood','tissue','organ','organs','acid','acids','amino','fatty','lipid','fats','membrane','matrix','pathway','pathways','process','processes','reaction','reactions','product','products','function','functions','level','levels','rate','rates','factor','factors','type','types','form','forms','role','mechanism','mechanisms','signal','signals','system','systems','complex','normal','elevated','increased','decreased','high','low','large','small','major','minor','primary','secondary','common','rare','specific','general','important','result','results','cause','causes','effect','effects','lead','leads','require','requires','involve','involves','produce','produces','occur','occurs','convert','converts','inhibit','inhibits','activate','activates','regulate','regulates','transport','transports','release','releases','absorb','absorbs','dietary','osmotic','hereditary','absorbed','apical','intestinal','matrix','branched','intermediate','intermediates','production','conversion','degradation','oxidation','starvation','anaerobic','treatment','structure','structures','molecule','molecules','substrate','substrates','precursor','precursors','inactive','active','excess','defect','defective','step','steps','phase','phases','less','hours','hour','history','synopsis','generate','generates','generated','inborn','metabolized','converted','incomplete','accumulate','accumulates','cannot','adds','break','breaks','affinity','flux','exported','transferred','increase','increases','gradient','activity','surface','enters','toxic','persistent','eating','export','carbon','sugars','linkages','becomes','different','idea','moves','milk','generators','diet','water','must','mono','sugar','produced','termini','branches','rather','many','uses','example','defects','note','post','food','basic','regular','slow','feed','converting','making','learn','learned','board','boards','test','state','finally','another','forms','large','high','major','specific','place','still','baby','avoid','child','juice','skip','takes','gets']);
 
-  async function filterToMedicalTerms(kws, lectureName, lectureModule){
-    // Pure algorithmic filter — no Claude API call needed
-    return kws.filter(w=>!MEDICAL_STOP_WORDS.has(w.toLowerCase()));
+  async function filterToMedicalTerms(kws, lectureName, lectureModule, apiKey){
+    // First apply stop words filter
+    const afterStopWords=kws.filter(w=>!MEDICAL_STOP_WORDS.has(w.toLowerCase()));
+    if(!apiKey||afterStopWords.length===0) return afterStopWords;
+    // Then use Claude to filter to lecture-specific medical terms
+    try{
+      const prompt=`You are filtering keywords extracted from a medical school lecture synopsis to use as Anki flashcard search terms.
+
+LECTURE: "${lectureName}" (Module: ${lectureModule})
+
+Candidate keywords:
+${afterStopWords.join(', ')}
+
+Keep ONLY keywords that are specific medical, biochemical, or scientific terms relevant to "${lectureName}".
+Remove generic words, common verbs, adjectives, and terms too broad to be useful search terms.
+Keep specific molecules, pathways, enzymes, conditions, transporters, and medical abbreviations.
+
+JSON array of kept keywords only, no markdown, no explanation.`;
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})
+      });
+      const data=await res.json();
+      if(data.error){console.warn('Keyword filter error:',data.error.message);return afterStopWords;}
+      const text=data.content?.[0]?.text||'[]';
+      return JSON.parse(text.replace(/```json|```/g,'').trim());
+    }catch(e){
+      console.warn('Claude keyword filter failed, using stop words only:',e.message);
+      return afterStopWords;
+    }
   }
 
   async function handleFileExtract(text,filename){
     setExtractStatus(`Extracting keywords from ${filename}...`);
     const rawKws=extractKeywords(text,genericWords);
     setExtractStatus(`Filtering to medical terms (${rawKws.length} candidates)...`);
-    const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module);
+    const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module, apiKeyRef.current);
     let added=0;
     for(const kw of medicalKws){
       const clean=kw.trim().toLowerCase();
@@ -548,8 +574,7 @@ function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCou
   async function handleTextExtract(text){
     setExtractStatus('Extracting and filtering keywords...');
     const rawKws=extractKeywords(text,genericWords);
-    const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module);
-    for(const kw of medicalKws){
+    const medicalKws=await filterToMedicalTerms(rawKws, lecture.name, lecture.module, apiKeyRef.current);
       const clean=kw.trim().toLowerCase();
       if(!clean||keywords.find(k=>k.keyword===clean)) continue;
       await db.from('keywords').insert({lecture_id:lecture.id,keyword:clean,added_by:'auto-extract'});
