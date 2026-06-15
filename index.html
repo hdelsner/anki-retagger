@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v44</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v48</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -664,7 +664,6 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
   const [seededCount,setSeededCount]=useState(0);
   const [candidateCount,setCandidateCount]=useState(0);
   const [showConfirm,setShowConfirm]=useState(false);
-  const [showReanalyzeConfirm,setShowReanalyzeConfirm]=useState(false);
   const [editingLecId,setEditingLecId]=useState(null);
   const [editLecName,setEditLecName]=useState('');
   const [editLecMod,setEditLecMod]=useState('');
@@ -752,11 +751,7 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
     if(!data||data.length===0){setQueue([]);setIdx(0);return;}
     const q=data.map(item=>({...item.cards,confidence:item.confidence,reason:item.reason,queue_item_id:item.id}));
     setQueue(q);
-    // Find first unreviewed card
-    const{data:revData}=await db.from('reviews').select('card_id').eq('lecture_id',selLec.id);
-    const reviewedIds=new Set((revData||[]).map(r=>r.card_id));
-    const firstUnreviewed=q.findIndex(c=>!reviewedIds.has(c.id));
-    setIdx(firstUnreviewed>=0?firstUnreviewed:0);
+    setIdx(0); // Always start at position 0 in pendingQueue
   }
 
   async function runAnalysis(){
@@ -805,15 +800,19 @@ ${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
 For each card that genuinely belongs to this lecture return a JSON array of objects.
 Each: {"index":number,"confidence":"high"|"medium"|"low","reason":"one sentence explaining why"}
 Only include cards that truly belong. JSON array only, no markdown.`;
+        const ctrl1=new AbortController();
+        const t1=setTimeout(()=>ctrl1.abort(),30000);
         const res=await fetch('https://api.anthropic.com/v1/messages',{
           method:'POST',
           headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-          body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:prompt}]})
+          body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:prompt}]}),
+          signal:ctrl1.signal
         });
+        clearTimeout(t1);
         const data=await res.json();
         if(data.error){
           console.warn(`Chunk ${ci+1} API error:`, data.error.message);
-          continue; // Skip this chunk rather than dumping cards
+          continue;
         }
         const text=data.content?.[0]?.text||'[]';
         const hits=JSON.parse(text.replace(/```json|```/g,'').trim());
@@ -842,112 +841,6 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     setLoading(false);
   }
 
-  async function reAnalyzeWithExamples(){
-    if(!apiKey){alert('Enter your Anthropic API key in setup first.');return;}
-    setLoading(true);setProgress({step:'Loading reviewed examples...',pct:2});
-
-    // Fetch all reviews for this lecture with card data
-    const{data:reviewData}=await db.from('reviews').select('*, cards(*)').eq('lecture_id',selLec.id);
-    if(!reviewData||reviewData.length===0){
-      alert('No reviewed cards found for this lecture. Complete the first pass before running re-analysis.');
-      setLoading(false);return;
-    }
-
-    // Fetch queue_items separately to get confidence ratings
-    const{data:queueData}=await db.from('queue_items').select('card_id,confidence').eq('lecture_id',selLec.id);
-    const confidenceMap={};
-    (queueData||[]).forEach(q=>{confidenceMap[q.card_id]=q.confidence;});
-
-    // Attach confidence to reviews
-    const reviewsWithConfidence=reviewData.map(r=>({...r,confidence:confidenceMap[r.card_id]||null}));
-
-    // Build example pools using confidence-based cascade
-    const approved=reviewsWithConfidence.filter(r=>r.decision==='approved');
-    const rejected=reviewsWithConfidence.filter(r=>r.decision==='rejected');
-
-    function pickExamples(pool, preferredConfidence, fallback1, fallback2, count=10){
-      const preferred=pool.filter(r=>r.queue_items?.confidence===preferredConfidence);
-      const f1=pool.filter(r=>r.queue_items?.confidence===fallback1);
-      const f2=pool.filter(r=>r.queue_items?.confidence===fallback2);
-      const combined=[...preferred,...f1,...f2];
-      return combined.slice(0,count);
-    }
-
-    const approvedExamples=pickExamples(approved,'low','medium','high');
-    const rejectedExamples=pickExamples(rejected,'high','medium','low');
-
-    const exampleText=`
-EXAMPLES OF CARDS YOUR TEAM APPROVED (include cards like these):
-${approvedExamples.map((r,i)=>`${i+1}. Front: ${r.cards?.front} | Back: ${r.cards?.back}`).join('\n')}
-
-EXAMPLES OF CARDS YOUR TEAM REJECTED (do NOT include cards like these):
-${rejectedExamples.map((r,i)=>`${i+1}. Front: ${r.cards?.front} | Back: ${r.cards?.back}`).join('\n')}`;
-
-    // Get keyword-filtered candidates that aren't already in the queue
-    const{data:existingQueue}=await db.from('queue_items').select('card_id').eq('lecture_id',selLec.id);
-    const existingIds=new Set((existingQueue||[]).map(q=>q.card_id));
-
-    const{data:kws}=await db.from('keywords').select('*').eq('lecture_id',selLec.id);
-    const kwList=(kws||[]).map(k=>k.keyword.toLowerCase());
-    const{data:exKws}=await db.from('exclusion_keywords').select('*').eq('lecture_id',selLec.id);
-    const exList=(exKws||[]).map(k=>k.keyword.toLowerCase());
-
-    // Only analyze cards NOT already in the queue
-    const newCandidates=cards.filter(c=>{
-      if(existingIds.has(c.id)) return false;
-      const text=(c.front+' '+c.back).toLowerCase();
-      if(exList.some(ex=>text.includes(ex))) return false;
-      return kwList.some(kw=>text.includes(kw));
-    });
-
-    setProgress({step:`Re-analyzing ${newCandidates.length} new candidates with ${approvedExamples.length} approved + ${rejectedExamples.length} rejected examples...`,pct:5});
-
-    let newCards=[];
-    const DEEP=100;
-    const chunks=[];
-    for(let i=0;i<newCandidates.length;i+=DEEP) chunks.push(newCandidates.slice(i,i+DEEP));
-
-    for(let ci=0;ci<chunks.length;ci++){
-      const chunk=chunks[ci];
-      setProgress({step:`Re-analyzing chunk ${ci+1} of ${chunks.length}...`,pct:Math.round(5+((ci+1)/Math.max(chunks.length,1))*90)});
-      if(ci>0) await new Promise(r=>setTimeout(r,500));
-      try{
-        const prompt=`You are helping medical students tag Anki flashcards to the correct lecture.
-LECTURE: "${selLec.name}" (Module: ${selLec.module})
-${exampleText}
-
-Using these examples to calibrate your judgment, review the following new cards:
-CARDS (INDEX|FRONT|BACK):
-${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
-
-For each card that genuinely belongs to this lecture return a JSON array of objects.
-Each: {"index":number,"confidence":"high"|"medium"|"low","reason":"one sentence explaining why"}
-Only include cards that truly belong. JSON array only, no markdown.`;
-        const res=await fetch('https://api.anthropic.com/v1/messages',{
-          method:'POST',
-          headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-          body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:prompt}]})
-        });
-        const data=await res.json();
-        if(data.error){console.warn(`Re-analyze chunk ${ci+1} error:`,data.error.message);continue;}
-        const text=data.content?.[0]?.text||'[]';
-        const hits=JSON.parse(text.replace(/```json|```/g,'').trim());
-        hits.forEach(h=>{if(chunk[h.index]) newCards.push({...chunk[h.index],confidence:h.confidence,reason:h.reason})});
-      }catch(e){console.warn(`Re-analyze chunk ${ci+1} failed:`,e.message);}
-    }
-
-    setProgress({step:`Done. ${newCards.length} new cards found. Saving...`,pct:95});
-    if(newCards.length>0){
-      const queueItems=newCards.map(c=>({lecture_id:selLec.id,card_id:c.id,confidence:c.confidence,reason:c.reason}));
-      for(let i=0;i<queueItems.length;i+=100){
-        await db.from('queue_items').upsert(queueItems.slice(i,i+100),{onConflict:'lecture_id,card_id',ignoreDuplicates:true});
-      }
-    }
-    setProgress({step:`Re-analysis complete. ${newCards.length} new cards added to queue.`,pct:100});
-    await loadQueue();
-    setLoading(false);
-  }
-
   async function decide(card,decision){
     const existing=reviews[card.id];
     const payload={card_id:card.id,lecture_id:selLec.id,decision,reviewed_by:reviewer,reviewed_at:new Date().toISOString()};
@@ -960,8 +853,8 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     const newReviews={...reviews,[card.id]:payload};
     setReviews(newReviews);
     setReviewedCards(prev=>prev.map(r=>r.card_id===card.id?{...r,decision:payload.decision,reviewed_by:payload.reviewed_by}:r));
-    // Advance to next card in pending queue
-    if(idx<pendingQueue.length-1) setIdx(i=>i+1);
+    // Keep idx the same — the reviewed card drops out of pendingQueue so the next card slides into this position
+    loadReviewedCards();
   }
 
   async function markComplete(){
@@ -1010,39 +903,6 @@ Only include cards that truly belong. JSON array only, no markdown.`;
   return(
     <div style={{maxWidth:1000,margin:'0 auto',padding:'1.5rem 1rem'}}>
       {showConfirm&&<ConfirmModal seededCount={seededCount} candidateCount={candidateCount} onConfirm={runAnalysis} onCancel={()=>setShowConfirm(false)}/>}
-      {showReanalyzeConfirm&&(
-        <div class="modal-bg">
-          <div class="modal">
-            <h3 style={{marginBottom:'0.75rem'}}>Re-analyze with examples</h3>
-            <p style={{fontSize:13,color:'var(--txt2)',marginBottom:'1rem'}}>Claude will analyze keyword-matched cards that aren't already in your queue, using your team's {reviewedCards.length} reviewed cards as calibration examples.</p>
-            <div style={{background:'var(--bg2)',borderRadius:'var(--rad)',padding:'1rem',marginBottom:'1rem',display:'flex',flexDirection:'column',gap:6}}>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
-                <span style={{color:'var(--txt2)'}}>Approved examples available</span>
-                <strong>{reviewedCards.filter(r=>r.decision==='approved').length}</strong>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
-                <span style={{color:'var(--txt2)'}}>Rejected examples available</span>
-                <strong>{reviewedCards.filter(r=>r.decision==='rejected').length}</strong>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
-                <span style={{color:'var(--txt2)'}}>New candidates to analyze</span>
-                <strong>{candidateCount}</strong>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:14}}>
-                <span style={{color:'var(--txt2)'}}>Estimated cost</span>
-                <strong style={{color:'var(--ok)'}}>${estimateCost(candidateCount)}</strong>
-              </div>
-            </div>
-            <p style={{fontSize:12,color:'var(--txt2)',marginBottom:'1rem'}}>Only cards not already in your queue will be analyzed. Previously queued cards are untouched.</p>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <button onClick={()=>setShowReanalyzeConfirm(false)}>Cancel</button>
-              <button style={{background:'var(--warn)',color:'#fff',borderColor:'var(--warn)'}} onClick={()=>{setShowReanalyzeConfirm(false);reAnalyzeWithExamples();}}>
-                <i class="ti ti-refresh"/> Run re-analysis
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div style={{display:'flex',alignItems:'center',gap:'1rem',marginBottom:'1.25rem'}}>
         <button onClick={onBack} style={{border:'none',background:'none',color:'var(--txt2)',padding:0,fontSize:13}}>
@@ -1152,11 +1012,6 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                     <button class="pri" onClick={()=>setShowConfirm(true)} disabled={loading||(seededCount===0&&candidateCount===0)}>
                       <i class="ti ti-sparkles"/> {loading?'Analyzing...':'Run analysis'}
                     </button>
-                    {reviewedCards.length>=20&&(
-                      <button onClick={()=>setShowReanalyzeConfirm(true)} disabled={loading} style={{background:'var(--warnL)',color:'var(--warn)',borderColor:'var(--warn)'}}>
-                        <i class="ti ti-refresh"/> Re-analyze with examples
-                      </button>
-                    )}
                   </div>
                 </div>
 
@@ -1186,7 +1041,7 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                   {/* Pending tab */}
                   {reviewTab==='pending'&&currentCard&&<>
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
-                      <h3 style={{fontSize:15}}>Card {idx+1} of {pendingQueue.length} pending</h3>
+                      <h3 style={{fontSize:15}}>{pendingQueue.length - idx} cards remaining</h3>
                       <div style={{display:'flex',gap:6}}>
                         {currentCard.confidence==='seeded'
                           ?<span class="badge b-warn"><i class="ti ti-tag"/> previously tagged</span>
@@ -1215,15 +1070,6 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                       </button>
                       <button class="err" onClick={()=>decide(currentCard,'rejected')} style={{padding:'11px',fontSize:15}}>
                         <i class="ti ti-x"/> Reject
-                      </button>
-                    </div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                      <button onClick={()=>setIdx(i=>Math.max(0,i-1))} disabled={idx===0}>
-                        <i class="ti ti-arrow-left"/> Previous
-                      </button>
-                      <span style={{color:'var(--txt2)',fontSize:12}}>{Math.round((Object.values(reviews).filter(r=>r.lecture_id===selLec?.id).length/visibleQueue.length)*100)}% reviewed</span>
-                      <button onClick={()=>setIdx(i=>Math.min(pendingQueue.length-1,i+1))} disabled={idx===pendingQueue.length-1}>
-                        Next <i class="ti ti-arrow-right"/>
                       </button>
                     </div>
                   </>}
