@@ -154,7 +154,7 @@ function CardDropZone({onCardsLoaded}){
       await new Promise(r=>setTimeout(r,50));
       const BATCH=100;
       for(let i=0;i<parsed.length;i+=BATCH){
-        await db.from('cards').upsert(parsed.slice(i,i+BATCH),{onConflict:'anki_id'});
+        await db.from('cards').upsert(parsed.slice(i,i+BATCH),{onConflict:'anki_id',ignoreDuplicates:false});
         if(i%2000===0&&i>0) setStatus(`Uploaded ${i.toLocaleString()} of ${parsed.length.toLocaleString()}...`);
       }
       setStatus(`Done — ${parsed.length.toLocaleString()} cards imported.`);
@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v48</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v50</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -870,10 +870,10 @@ Only include cards that truly belong. JSON array only, no markdown.`;
   async function exportResults(){
     const{data}=await db.from('reviews').select('*, cards(*), lectures(*)').eq('decision','approved');
     if(!data) return;
-    const lines=['card_front\tcard_back\ttag'];
+    const lines=['card_front\ttag'];
     data.forEach(r=>{
       const tag=`AnkiHub_Optional::VPS_MM::${r.lectures.module}::${r.lectures.name}`;
-      lines.push(`${r.cards.front}\t${r.cards.back}\t${tag}`);
+      lines.push(`${r.cards.front}\t${tag}`);
     });
     const blob=new Blob([lines.join('\n')],{type:'text/plain'});
     const url=URL.createObjectURL(blob);
