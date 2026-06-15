@@ -143,12 +143,18 @@ function CardDropZone({onCardsLoaded}){
     setStatus('Reading file...');
     try{
       const text=await file.text();
-      const lines=text.trim().split('\n').filter(l=>l.trim()&&!l.startsWith('#'));
+      const allLines=text.trim().split('\n');
+      const lines=allLines.filter(l=>l.trim()&&!l.startsWith('#'));
+      // Detect tags column from header
+      const tagsHeader=allLines.find(l=>l.startsWith('#tags column:'));
+      const tagsColIdx=tagsHeader?parseInt(tagsHeader.replace('#tags column:','').trim())-1:null;
       setStatus(`Parsing ${lines.length.toLocaleString()} lines...`);
       await new Promise(r=>setTimeout(r,50));
       const parsed=lines.map((line,i)=>{
         const parts=line.split('\t');
-        return{anki_id:`card_${i}`,front:parts[0]||'',back:parts[1]||'',existing_tags:parts[2]||''};
+        const rawTags=tagsColIdx!==null?(parts[tagsColIdx]||''):(parts[parts.length-1]||'');
+        const tags=rawTags.trim().replace(/^"|"$/g,'');
+        return{anki_id:`card_${i}`,front:parts[0]||'',back:parts[1]||'',existing_tags:tags};
       }).filter(c=>c.front.trim());
       setStatus(`Uploading ${parsed.length.toLocaleString()} cards...`);
       await new Promise(r=>setTimeout(r,50));
@@ -348,7 +354,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v50</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v52</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
