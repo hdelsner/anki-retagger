@@ -348,7 +348,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v42</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v44</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -846,16 +846,24 @@ Only include cards that truly belong. JSON array only, no markdown.`;
     if(!apiKey){alert('Enter your Anthropic API key in setup first.');return;}
     setLoading(true);setProgress({step:'Loading reviewed examples...',pct:2});
 
-    // Fetch all reviews for this lecture with card data and confidence
-    const{data:reviewData}=await db.from('reviews').select('*, queue_items!inner(confidence), cards(*)').eq('lecture_id',selLec.id);
+    // Fetch all reviews for this lecture with card data
+    const{data:reviewData}=await db.from('reviews').select('*, cards(*)').eq('lecture_id',selLec.id);
     if(!reviewData||reviewData.length===0){
       alert('No reviewed cards found for this lecture. Complete the first pass before running re-analysis.');
       setLoading(false);return;
     }
 
+    // Fetch queue_items separately to get confidence ratings
+    const{data:queueData}=await db.from('queue_items').select('card_id,confidence').eq('lecture_id',selLec.id);
+    const confidenceMap={};
+    (queueData||[]).forEach(q=>{confidenceMap[q.card_id]=q.confidence;});
+
+    // Attach confidence to reviews
+    const reviewsWithConfidence=reviewData.map(r=>({...r,confidence:confidenceMap[r.card_id]||null}));
+
     // Build example pools using confidence-based cascade
-    const approved=reviewData.filter(r=>r.decision==='approved');
-    const rejected=reviewData.filter(r=>r.decision==='rejected');
+    const approved=reviewsWithConfidence.filter(r=>r.decision==='approved');
+    const rejected=reviewsWithConfidence.filter(r=>r.decision==='rejected');
 
     function pickExamples(pool, preferredConfidence, fallback1, fallback2, count=10){
       const preferred=pool.filter(r=>r.queue_items?.confidence===preferredConfidence);
@@ -1236,19 +1244,24 @@ Only include cards that truly belong. JSON array only, no markdown.`;
                       )}
                       {reviewedCards.map((r,i)=>{
                         const card=r.cards;
-                        if(!card) return null;
                         return(
                           <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'var(--bg2)',borderRadius:'var(--rad)',border:'0.5px solid var(--bdr)'}}>
                             <span style={{fontSize:12,color:'var(--txt1)',flexShrink:0,minWidth:28,textAlign:'right',fontWeight:500}}>{i+1}.</span>
                             <span class={`badge ${r.decision==='approved'?'b-ok':'b-err'}`} style={{flexShrink:0,fontSize:11}}>
                               {r.decision==='approved'?'✓':'✗'}
                             </span>
-                            <span onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} style={{fontSize:13,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',cursor:'pointer'}}>{card.front}</span>
-                            <span style={{fontSize:11,color:'var(--txt2)',flexShrink:0}}>{r.reviewed_by}</span>
-                            <button onClick={()=>decide({...card},r.decision==='approved'?'rejected':'approved')} style={{flexShrink:0,padding:'3px 8px',fontSize:11,background:r.decision==='approved'?'var(--errL)':'var(--okL)',color:r.decision==='approved'?'var(--err)':'var(--ok)',border:`0.5px solid ${r.decision==='approved'?'var(--err)':'var(--ok)'}`,borderRadius:'var(--rad)'}}>
-                              {r.decision==='approved'?'Reject':'Approve'}
-                            </button>
-                            <i onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} class="ti ti-chevron-right" style={{color:'var(--txt2)',flexShrink:0,cursor:'pointer'}}/>
+                            {card?(
+                              <>
+                                <span onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} style={{fontSize:13,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',cursor:'pointer'}}>{card.front}</span>
+                                <span style={{fontSize:11,color:'var(--txt2)',flexShrink:0}}>{r.reviewed_by}</span>
+                                <button onClick={()=>decide({...card},r.decision==='approved'?'rejected':'approved')} style={{flexShrink:0,padding:'3px 8px',fontSize:11,background:r.decision==='approved'?'var(--errL)':'var(--okL)',color:r.decision==='approved'?'var(--err)':'var(--ok)',border:`0.5px solid ${r.decision==='approved'?'var(--err)':'var(--ok)'}`,borderRadius:'var(--rad)'}}>
+                                  {r.decision==='approved'?'Reject':'Approve'}
+                                </button>
+                                <i onClick={()=>setExpandedCard({...card,confidence:null,reason:null,review:r})} class="ti ti-chevron-right" style={{color:'var(--txt2)',flexShrink:0,cursor:'pointer'}}/>
+                              </>
+                            ):(
+                              <span style={{fontSize:13,flex:1,color:'var(--txt2)',fontStyle:'italic'}}>Card data unavailable</span>
+                            )}
                           </div>
                         );
                       })}
