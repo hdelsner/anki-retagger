@@ -283,9 +283,7 @@ function App(){
       if(batch.length<1000) break;
       from+=1000;
     }
-    const cds=allCards;
-    console.log('Cards loaded:', cds?.length);
-    const allCards=cds||[];
+    console.log('Cards loaded:', allCards.length);
     setLectures(lecs||[]);
     setCards(allCards);
     const cm={};(comps||[]).forEach(c=>{cm[c.lecture_id]=c});setCompletions(cm);
@@ -364,7 +362,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v53</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v54</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
