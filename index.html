@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v74</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v76</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -920,61 +920,38 @@ When in doubt, include the card — it is better to include a borderline card th
     setCompletions(p=>{const n={...p};delete n[selLec.id];return n;});
   }
 
-  function extractSearchFragments(front){
-    // Split on cloze deletions {{c1::...}}, {{c2::...}}, etc.
-    // Handles partial-word clozes too (e.g. "in{{c1::creases}}" -> remove whole word "increases")
-    // Returns array of fragments (each fragment = consecutive non-cloze words)
-    const clozePattern=/\{\{c\d+::.*?\}\}/g;
-
-    // First, find all cloze matches and their positions
-    const clozeMatches=[...front.matchAll(clozePattern)];
-    if(clozeMatches.length===0){
-      // No cloze at all — whole front text is one fragment
-      return [front.trim()].filter(f=>f.split(/\s+/).length>=5);
-    }
-
-    // Build a version of the text with cloze spans replaced by a marker,
-    // then expand the marker to consume whole adjacent word characters
-    // (so "in{{c1::creases}}" removes "in" too, not just the cloze span)
-    let working=front;
-    // Replace each cloze match with a unique placeholder, but first expand
-    // the match boundaries to include any adjacent non-space word characters
+  function stripCloze(front){
+    // Removes cloze deletion markers entirely, including the answer text inside them.
+    // Handles {{c1::word}}, {{c1::word::hint}}, and partial-word clozes like in{{c1::creases}}
+    // by expanding the removal to consume adjacent word characters too.
+    const clozePattern=/\{\{c\d+::.*?(?:::.*?)?\}\}/g;
     const wordCharPattern=/[A-Za-z0-9'-]/;
-    let offset=0;
+
+    const matches=[...front.matchAll(clozePattern)];
+    if(matches.length===0) return front.trim();
+
     const spans=[];
-    for(const m of clozeMatches){
+    for(const m of matches){
       let start=m.index;
       let end=m.index+m[0].length;
-      // Expand left over word characters
       while(start>0&&wordCharPattern.test(front[start-1])) start--;
-      // Expand right over word characters
       while(end<front.length&&wordCharPattern.test(front[end])) end++;
       spans.push([start,end]);
     }
-    // Merge overlapping spans
     spans.sort((a,b)=>a[0]-b[0]);
     const merged=[];
     for(const [s,e] of spans){
       if(merged.length&&s<=merged[merged.length-1][1]) merged[merged.length-1][1]=Math.max(merged[merged.length-1][1],e);
       else merged.push([s,e]);
     }
-    // Extract fragments BETWEEN the merged spans
-    const fragments=[];
+    let result='';
     let pos=0;
     for(const [s,e] of merged){
-      const frag=front.substring(pos,s).trim();
-      if(frag) fragments.push(frag);
+      result+=front.substring(pos,s);
       pos=e;
     }
-    const lastFrag=front.substring(pos).trim();
-    if(lastFrag) fragments.push(lastFrag);
-
-    // Clean fragments: strip leading/trailing punctuation, collapse whitespace
-    const cleaned=fragments
-      .map(f=>f.replace(/\s+/g,' ').replace(/^[^\w]+|[^\w]+$/g,'').trim())
-      .filter(f=>f.split(/\s+/).filter(w=>w).length>=5); // require 5+ words
-
-    return cleaned;
+    result+=front.substring(pos);
+    return result.replace(/\s+/g,' ').trim();
   }
 
   async function exportResults(){
@@ -989,12 +966,11 @@ When in doubt, include the card — it is better to include a borderline card th
     data.forEach(r=>{
       const card=r.cards;
       if(!card||!card.front) return;
-      const fragments=extractSearchFragments(card.front);
-      if(fragments.length===0){
+      const stripped=stripCloze(card.front);
+      if(!stripped){
         needsManualCards.push(card.front);
       } else {
-        const quoted=fragments.map(f=>`"${f}"`).join(' ');
-        searchableCards.push(quoted);
+        searchableCards.push(`"${stripped}"`);
       }
     });
 
@@ -1022,7 +998,7 @@ When in doubt, include the card — it is better to include a borderline card th
     if(needsManualCards.length>0){
       lines.push('################################################################');
       lines.push('# CARDS NEEDING MANUAL TAGGING');
-      lines.push('# (cloze formatting covers too much of the front text to search reliably — tag these by hand)');
+      lines.push('# (cloze formatting covered the entire front text, leaving nothing to search — tag these by hand)');
       lines.push('################################################################');
       lines.push('');
       needsManualCards.forEach((f,i)=>{lines.push(`${i+1}. ${f}`);lines.push('');});
