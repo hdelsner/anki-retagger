@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v72</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v74</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -920,86 +920,6 @@ When in doubt, include the card — it is better to include a borderline card th
     setCompletions(p=>{const n={...p};delete n[selLec.id];return n;});
   }
 
-  async function testAnkiConnect(){
-    try{
-      const res=await fetch('http://localhost:8765',{
-        method:'POST',
-        body:JSON.stringify({action:'findNotes',version:6,params:{query:'deck:current'}})
-      });
-      const data=await res.json();
-      const ids=data.result||[];
-      alert(`Found ${ids.length} notes.\n\nFirst 10 IDs in order returned:\n${ids.slice(0,10).join('\n')}\n\nError: ${data.error||'none'}`);
-    }catch(e){
-      alert('Error: '+e.message);
-    }
-  }
-
-  async function pushTagsToAnki(){
-    if(!selLec){alert('Please select a lecture first.');return;}
-    const tag=`AnkiHub_Optional::VPS_MM::${selLec.module}::${selLec.name}`;
-
-    // Test AnkiConnect is running
-    try{
-      const test=await fetch('http://localhost:8765',{method:'POST',body:JSON.stringify({action:'version',version:6})});
-      if(!test.ok) throw new Error('not running');
-    }catch(e){
-      alert('AnkiConnect is not reachable. Make sure Anki is open and AnkiConnect is installed.');
-      return;
-    }
-
-    const{data}=await db.from('reviews').select('*, cards(*)').eq('decision','approved').eq('lecture_id',selLec.id);
-    if(!data||data.length===0){alert('No approved cards for this lecture.');return;}
-
-    const guids=data.map(r=>r.cards?.note_id).filter(Boolean);
-    if(guids.length===0){alert('No GUIDs found. Make sure cards were imported with the unique identifier included.');return;}
-
-    setProgress({step:`Finding ${guids.length} notes in Anki...`,pct:10});
-    setLoading(true);
-
-    // Find numeric note IDs from GUIDs
-    const numericIds=[];
-    for(let i=0;i<guids.length;i++){
-      if(i%10===0) setProgress({step:`Looking up note ${i+1} of ${guids.length}...`,pct:Math.round(10+((i/guids.length)*60))});
-      try{
-        const res=await fetch('http://localhost:8765',{
-          method:'POST',
-          body:JSON.stringify({action:'findNotes',version:6,params:{query:`guid:${guids[i]}`}})
-        });
-        const data=await res.json();
-        if(data.result&&data.result.length>0) numericIds.push(data.result[0]);
-      }catch(e){
-        console.warn('Failed to find note for GUID:',guids[i]);
-      }
-    }
-
-    if(numericIds.length===0){
-      alert('Could not find any matching notes in Anki. Make sure you have the AnKing deck loaded.');
-      setLoading(false);
-      setProgress({step:'',pct:0});
-      return;
-    }
-
-    setProgress({step:`Adding tag to ${numericIds.length} notes...`,pct:75});
-
-    // Add tag to all found notes in one call
-    try{
-      const res=await fetch('http://localhost:8765',{
-        method:'POST',
-        body:JSON.stringify({action:'addTags',version:6,params:{notes:numericIds,tags:tag}})
-      });
-      const result=await res.json();
-      if(result.error){
-        alert('AnkiConnect error: '+result.error);
-      } else {
-        setProgress({step:`Done! Tag added to ${numericIds.length} of ${guids.length} notes in Anki.`,pct:100});
-        alert(`Successfully tagged ${numericIds.length} cards in Anki with:\n${tag}`);
-      }
-    }catch(e){
-      alert('Error adding tags: '+e.message);
-    }
-    setLoading(false);
-  }
-
   function extractSearchFragments(front){
     // Split on cloze deletions {{c1::...}}, {{c2::...}}, etc.
     // Handles partial-word clozes too (e.g. "in{{c1::creases}}" -> remove whole word "increases")
@@ -1010,7 +930,7 @@ When in doubt, include the card — it is better to include a borderline card th
     const clozeMatches=[...front.matchAll(clozePattern)];
     if(clozeMatches.length===0){
       // No cloze at all — whole front text is one fragment
-      return [front.trim()].filter(f=>f.split(/\s+/).length>=3);
+      return [front.trim()].filter(f=>f.split(/\s+/).length>=5);
     }
 
     // Build a version of the text with cloze spans replaced by a marker,
@@ -1052,7 +972,7 @@ When in doubt, include the card — it is better to include a borderline card th
     // Clean fragments: strip leading/trailing punctuation, collapse whitespace
     const cleaned=fragments
       .map(f=>f.replace(/\s+/g,' ').replace(/^[^\w]+|[^\w]+$/g,'').trim())
-      .filter(f=>f.split(/\s+/).filter(w=>w).length>=3); // require 3+ words
+      .filter(f=>f.split(/\s+/).filter(w=>w).length>=5); // require 5+ words
 
     return cleaned;
   }
@@ -1085,17 +1005,27 @@ When in doubt, include the card — it is better to include a borderline card th
 
     const searchQuery=searchableCards.join(' OR ');
     const lines=[
-      `# ${selLec.module}::${selLec.name}`,
+      `# Lecture: ${selLec.module}::${selLec.name}`,
       `# Tag to add: ${tag}`,
-      `# ${searchableCards.length} cards searchable, ${needsManualCards.length} need manual tagging`,
+      `# ${searchableCards.length} cards searchable via Anki Browser search, ${needsManualCards.length} need manual tagging`,
       '',
-      '=== PASTE THIS INTO ANKI BROWSER SEARCH BAR ===',
+      '',
+      '################################################################',
+      '# COPY EVERYTHING BETWEEN THE LINES BELOW INTO ANKI BROWSER SEARCH',
+      '################################################################',
+      '----------------------------------------------------------------',
       searchQuery,
+      '----------------------------------------------------------------',
+      '',
       '',
     ];
     if(needsManualCards.length>0){
-      lines.push('=== CARDS NEEDING MANUAL TAGGING (cloze covers too much front text to search reliably) ===');
-      needsManualCards.forEach(f=>lines.push(f));
+      lines.push('################################################################');
+      lines.push('# CARDS NEEDING MANUAL TAGGING');
+      lines.push('# (cloze formatting covers too much of the front text to search reliably — tag these by hand)');
+      lines.push('################################################################');
+      lines.push('');
+      needsManualCards.forEach((f,i)=>{lines.push(`${i+1}. ${f}`);lines.push('');});
     }
 
     const blob=new Blob([lines.join('\n')],{type:'text/plain'});
@@ -1137,8 +1067,6 @@ When in doubt, include the card — it is better to include a borderline card th
           :<span class="badge b-gray"><i class="ti ti-database"/> {cards.length.toLocaleString()} cards loaded</span>
         }
         <span class="badge b-acc"><i class="ti ti-user"/> {reviewer}</span>
-        <button onClick={testAnkiConnect} style={{fontSize:11}}>Test AnkiConnect</button>
-        <button onClick={pushTagsToAnki} disabled={!selLec||loading}><i class="ti ti-brand-apple"/> Push tags to Anki</button>
         <button onClick={exportResults}><i class="ti ti-download"/> Export tag file</button>
       </div>
 
