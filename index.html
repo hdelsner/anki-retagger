@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v69</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v70</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -920,6 +920,19 @@ When in doubt, include the card — it is better to include a borderline card th
     setCompletions(p=>{const n={...p};delete n[selLec.id];return n;});
   }
 
+  async function testAnkiConnect(){
+    try{
+      const res=await fetch('http://localhost:8765',{
+        method:'POST',
+        body:JSON.stringify({action:'findNotes',version:6,params:{query:'deck:current'}})
+      });
+      const data=await res.json();
+      alert(`Found ${data.result?.length||0} notes in current deck.\nFirst few IDs: ${JSON.stringify(data.result?.slice(0,5))}\nError: ${data.error||'none'}`);
+    }catch(e){
+      alert('Error: '+e.message);
+    }
+  }
+
   async function pushTagsToAnki(){
     if(!selLec){alert('Please select a lecture first.');return;}
     const tag=`AnkiHub_Optional::VPS_MM::${selLec.module}::${selLec.name}`;
@@ -1038,6 +1051,7 @@ When in doubt, include the card — it is better to include a borderline card th
           :<span class="badge b-gray"><i class="ti ti-database"/> {cards.length.toLocaleString()} cards loaded</span>
         }
         <span class="badge b-acc"><i class="ti ti-user"/> {reviewer}</span>
+        <button onClick={testAnkiConnect} style={{fontSize:11}}>Test AnkiConnect</button>
         <button onClick={pushTagsToAnki} disabled={!selLec||loading}><i class="ti ti-brand-apple"/> Push tags to Anki</button>
         <button onClick={exportResults}><i class="ti ti-download"/> Export tag file</button>
       </div>
