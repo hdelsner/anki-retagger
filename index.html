@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v70</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v71</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -927,7 +927,8 @@ When in doubt, include the card — it is better to include a borderline card th
         body:JSON.stringify({action:'findNotes',version:6,params:{query:'deck:current'}})
       });
       const data=await res.json();
-      alert(`Found ${data.result?.length||0} notes in current deck.\nFirst few IDs: ${JSON.stringify(data.result?.slice(0,5))}\nError: ${data.error||'none'}`);
+      const ids=data.result||[];
+      alert(`Found ${ids.length} notes.\n\nFirst 10 IDs in order returned:\n${ids.slice(0,10).join('\n')}\n\nError: ${data.error||'none'}`);
     }catch(e){
       alert('Error: '+e.message);
     }
