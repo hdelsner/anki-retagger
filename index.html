@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v65</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v66</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -899,15 +899,15 @@ When in doubt, include the card — it is better to include a borderline card th
     const payload={card_id:card.id,lecture_id:selLec.id,decision,reviewed_by:reviewer,reviewed_at:new Date().toISOString()};
     if(existing){
       await db.from('reviews').update(payload).eq('id',existing.id);
+      setReviewedCards(prev=>prev.map(r=>r.card_id===card.id?{...r,decision:payload.decision,reviewed_by:payload.reviewed_by}:r));
     } else {
-      await db.from('reviews').insert(payload);
+      const{data:inserted}=await db.from('reviews').insert(payload).select().single();
       setLectureReviewCounts(p=>({...p,[selLec.id]:(p[selLec.id]||0)+1}));
+      setReviewedCards(prev=>[...prev,{...(inserted||payload),cards:card}]);
     }
     const newReviews={...reviews,[card.id]:payload};
     setReviews(newReviews);
-    setReviewedCards(prev=>prev.map(r=>r.card_id===card.id?{...r,decision:payload.decision,reviewed_by:payload.reviewed_by}:r));
     // Keep idx the same — the reviewed card drops out of pendingQueue so the next card slides into this position
-    loadReviewedCards();
   }
 
   async function markComplete(){
