@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v76</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v77</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -921,37 +921,11 @@ When in doubt, include the card — it is better to include a borderline card th
   }
 
   function stripCloze(front){
-    // Removes cloze deletion markers entirely, including the answer text inside them.
-    // Handles {{c1::word}}, {{c1::word::hint}}, and partial-word clozes like in{{c1::creases}}
-    // by expanding the removal to consume adjacent word characters too.
-    const clozePattern=/\{\{c\d+::.*?(?:::.*?)?\}\}/g;
-    const wordCharPattern=/[A-Za-z0-9'-]/;
-
-    const matches=[...front.matchAll(clozePattern)];
-    if(matches.length===0) return front.trim();
-
-    const spans=[];
-    for(const m of matches){
-      let start=m.index;
-      let end=m.index+m[0].length;
-      while(start>0&&wordCharPattern.test(front[start-1])) start--;
-      while(end<front.length&&wordCharPattern.test(front[end])) end++;
-      spans.push([start,end]);
-    }
-    spans.sort((a,b)=>a[0]-b[0]);
-    const merged=[];
-    for(const [s,e] of spans){
-      if(merged.length&&s<=merged[merged.length-1][1]) merged[merged.length-1][1]=Math.max(merged[merged.length-1][1],e);
-      else merged.push([s,e]);
-    }
-    let result='';
-    let pos=0;
-    for(const [s,e] of merged){
-      result+=front.substring(pos,s);
-      pos=e;
-    }
-    result+=front.substring(pos);
-    return result.replace(/\s+/g,' ').trim();
+    // Removes only the cloze syntax markers ({{c1::, ::hint, }}), keeping the actual
+    // hidden answer text in place. E.g. "{{c1::glucose::hint}}" -> "glucose",
+    // and "in{{c1::creases}}" -> "increases" (recombines partial-word clozes correctly).
+    const stripped=front.replace(/\{\{c\d+::(.*?)(?:::.*?)?\}\}/g,'$1');
+    return stripped.replace(/\s+/g,' ').trim();
   }
 
   async function exportResults(){
