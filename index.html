@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v80</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v83</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -467,7 +467,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
   );
 }
 
-function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCount,exclusionKeywords,onExclusionChange,onObjectivesChange}){
+function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCount,exclusionKeywords,onExclusionChange,onObjectivesChange,seededCount,candidateCount}){
   const [keywords,setKeywords]=useState([]);
   const [newKw,setNewKw]=useState('');
   const [newExKw,setNewExKw]=useState('');
@@ -644,6 +644,9 @@ JSON array of kept keywords only, no markdown, no explanation.`;
         ):(
           <p style={{color:'var(--txt2)',fontSize:13,fontStyle:'italic',padding:'0.5rem 0'}}>No keywords yet — add manually or upload lecture materials below.</p>
         )}
+        <div style={{marginTop:'0.5rem',fontSize:12,color:'var(--txt2)'}}>
+          <i class="ti ti-cards"/> {seededCount||0} seeded · {candidateCount||0} keyword matches · est. <strong style={{color:'var(--txt1)'}}>${estimateCost(candidateCount||0)}</strong>
+        </div>
       </div>
 
       <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)'}}>
@@ -882,9 +885,9 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
 LECTURE: "${selLec.name}" (Module: ${selLec.module})
 ${selLec.learning_objectives?`LEARNING OBJECTIVES FOR THIS LECTURE:\n${selLec.learning_objectives}\n`:''}CARDS (INDEX|FRONT|BACK):
 ${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
-For each card that could plausibly belong to this lecture return a JSON array of objects.
+For each card that would reasonably belong to this lecture return a JSON array of objects.
 Each: {"index":number,"confidence":"high"|"medium"|"low","reason":"one sentence explaining why"}
-When in doubt, include the card — it is better to include a borderline card than to miss a relevant one. JSON array only, no markdown.`;
+Only include cards that are closely related to at least one of the learning objectives listed above. JSON array only, no markdown.`;
         const ctrl1=new AbortController();
         const t1=setTimeout(()=>ctrl1.abort(),30000);
         const res=await fetch('https://api.anthropic.com/v1/messages',{
@@ -1182,17 +1185,12 @@ When in doubt, include the card — it is better to include a borderline card th
                   <i class="ti ti-circle-check"/> Marked complete by {completions[selLec.id].completed_by}
                 </div>}
 
-                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} apiKey={apiKey} exclusionKeywords={exclusionKeywords} onExclusionChange={handleExclusionChange} onObjectivesChange={(id,obj)=>{setLectures(p=>p.map(l=>l.id===id?{...l,learning_objectives:obj}:l));setSelLec(p=>p&&p.id===id?{...p,learning_objectives:obj}:p);}} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
+                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} apiKey={apiKey} exclusionKeywords={exclusionKeywords} onExclusionChange={handleExclusionChange} onObjectivesChange={(id,obj)=>{setLectures(p=>p.map(l=>l.id===id?{...l,learning_objectives:obj}:l));setSelLec(p=>p&&p.id===id?{...p,learning_objectives:obj}:p);}} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}} seededCount={seededCount} candidateCount={candidateCount}/>
 
-                <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
-                  <div style={{fontSize:13,color:'var(--txt2)'}}>
-                    <i class="ti ti-cards"/> {seededCount} seeded · {candidateCount} keyword matches · est. <strong style={{color:'var(--txt1)'}}>${estimateCost(candidateCount)}</strong>
-                  </div>
-                  <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                    <button class="pri" onClick={()=>setShowConfirm(true)} disabled={loading||(seededCount===0&&candidateCount===0)}>
-                      <i class="ti ti-sparkles"/> {loading?'Analyzing...':'Run analysis'}
-                    </button>
-                  </div>
+                <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8}}>
+                  <button class="pri" onClick={()=>setShowConfirm(true)} disabled={loading||(seededCount===0&&candidateCount===0)}>
+                    <i class="ti ti-sparkles"/> {loading?'Analyzing...':'Run analysis'}
+                  </button>
                 </div>
 
                 {(loading||progress.step)&&(
