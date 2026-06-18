@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v84</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v85</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -1002,11 +1002,6 @@ Only include cards that are closely related to at least one of the learning obje
     return cleaned;
   }
 
-  function cleanForDisplay(front){
-    // Only remove curly brace characters, leave everything else intact
-    return front.replace(/[{}]/g,'');
-  }
-
   async function exportResults(){
     if(!selLec){alert('Please select a lecture first.');return;}
     const{data}=await db.from('reviews').select('*, cards(*), lectures(*)').eq('decision','approved').eq('lecture_id',selLec.id);
@@ -1021,7 +1016,7 @@ Only include cards that are closely related to at least one of the learning obje
       if(!card||!card.front) return;
       const fragments=extractSearchFragments(card.front);
       if(fragments.length===0){
-        needsManualCards.push(cleanForDisplay(card.front));
+        needsManualCards.push(card.front);
       } else {
         const quoted=fragments.map(f=>`"${f}"`).join(' ');
         searchableCards.push(quoted);
