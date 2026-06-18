@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v78</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v79</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -467,13 +467,23 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
   );
 }
 
-function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCount,exclusionKeywords,onExclusionChange}){
+function KeywordPanel({lecture,reviewer,cards,genericWords,apiKey,onCandidateCount,exclusionKeywords,onExclusionChange,onObjectivesChange}){
   const [keywords,setKeywords]=useState([]);
   const [newKw,setNewKw]=useState('');
   const [newExKw,setNewExKw]=useState('');
   const [extractStatus,setExtractStatus]=useState('');
+  const [objectives,setObjectives]=useState(lecture.learning_objectives||'');
+  const [objSaved,setObjSaved]=useState(true);
   const apiKeyRef=useRef(apiKey);
   useEffect(()=>{apiKeyRef.current=apiKey;},[apiKey]);
+
+  useEffect(()=>{setObjectives(lecture.learning_objectives||'');setObjSaved(true);},[lecture.id]);
+
+  async function saveObjectives(){
+    await db.from('lectures').update({learning_objectives:objectives}).eq('id',lecture.id);
+    setObjSaved(true);
+    if(onObjectivesChange) onObjectivesChange(lecture.id,objectives);
+  }
 
   useEffect(()=>{loadKeywords();},[lecture.id]);
 
@@ -586,6 +596,28 @@ JSON array of kept keywords only, no markdown, no explanation.`;
 
   return(
     <div>
+      <div style={{marginBottom:'1rem'}}>
+        <label style={{marginBottom:'0.5rem',display:'flex',alignItems:'center',gap:6}}>
+          <i class="ti ti-target-arrow" style={{color:'var(--acc)'}}/>
+          Learning objectives
+          <span style={{fontSize:11,color:'var(--txt2)'}}>— helps Claude judge relevance during analysis</span>
+        </label>
+        <textarea
+          value={objectives}
+          onChange={e=>{setObjectives(e.target.value);setObjSaved(false);}}
+          onBlur={saveObjectives}
+          rows={4}
+          placeholder="Paste the 4-6 learning objectives for this lecture..."
+          style={{width:'100%',resize:'vertical'}}
+        />
+        <div style={{display:'flex',justifyContent:'flex-end',marginTop:4}}>
+          {objSaved
+            ?<span style={{fontSize:11,color:'var(--ok)'}}><i class="ti ti-check"/> Saved</span>
+            :<button onClick={saveObjectives} style={{padding:'4px 10px',fontSize:12}}>Save</button>
+          }
+        </div>
+      </div>
+
       <div style={{marginBottom:'1rem'}}>
         <label style={{marginBottom:'0.5rem',display:'flex',alignItems:'center',gap:6}}>
           <i class="ti ti-key" style={{color:'var(--acc)'}}/>
@@ -848,7 +880,7 @@ function Review({reviewer,apiKey,lectures,setLectures,cards,completions,setCompl
       try{
         const prompt=`You are helping medical students tag Anki flashcards to the correct lecture.
 LECTURE: "${selLec.name}" (Module: ${selLec.module})
-CARDS (INDEX|FRONT|BACK):
+${selLec.learning_objectives?`LEARNING OBJECTIVES FOR THIS LECTURE:\n${selLec.learning_objectives}\n`:''}CARDS (INDEX|FRONT|BACK):
 ${chunk.map((c,i)=>`${i}|${c.front}|${c.back}`).join('\n')}
 For each card that could plausibly belong to this lecture return a JSON array of objects.
 Each: {"index":number,"confidence":"high"|"medium"|"low","reason":"one sentence explaining why"}
@@ -1151,7 +1183,7 @@ When in doubt, include the card — it is better to include a borderline card th
                   <i class="ti ti-circle-check"/> Marked complete by {completions[selLec.id].completed_by}
                 </div>}
 
-                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} apiKey={apiKey} exclusionKeywords={exclusionKeywords} onExclusionChange={handleExclusionChange} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
+                <KeywordPanel lecture={selLec} reviewer={reviewer} cards={cards} genericWords={genericWords} apiKey={apiKey} exclusionKeywords={exclusionKeywords} onExclusionChange={handleExclusionChange} onObjectivesChange={(id,obj)=>{setLectures(p=>p.map(l=>l.id===id?{...l,learning_objectives:obj}:l));setSelLec(p=>p&&p.id===id?{...p,learning_objectives:obj}:p);}} onCandidateCount={(s,c)=>{setSeededCount(s);setCandidateCount(c)}}/>
 
                 <div style={{marginTop:'1rem',paddingTop:'1rem',borderTop:'0.5px solid var(--bdr)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
                   <div style={{fontSize:13,color:'var(--txt2)'}}>
