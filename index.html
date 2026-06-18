@@ -375,7 +375,7 @@ function Setup({reviewer,setReviewer,apiKey,setApiKey,lectures,setLectures,cards
           <i class="ti ti-cards" style={{color:'#fff',fontSize:18}}/>
         </div>
         <h2>VPS Anki Retagger</h2>
-        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v79</span>
+        <span style={{marginLeft:'auto',fontSize:11,color:'var(--txt2)',background:'var(--bg3)',padding:'2px 8px',borderRadius:4}}>v80</span>
       </div>
       <p style={{color:'var(--txt2)',fontSize:13,marginBottom:'1.5rem',marginLeft:42}}>Configure your session before reviewing.</p>
 
@@ -953,40 +953,30 @@ When in doubt, include the card — it is better to include a borderline card th
   }
 
   function extractSearchFragments(front){
-    // Split on cloze deletions {{c1::...}}, {{c2::...}}, etc.
-    // Handles partial-word clozes too (e.g. "in{{c1::creases}}" -> remove whole word "increases")
-    // Returns array of fragments (each fragment = consecutive non-cloze words)
     const clozePattern=/\{\{c\d+::.*?\}\}/g;
-
-    // First, find all cloze matches and their positions
     const clozeMatches=[...front.matchAll(clozePattern)];
+
     if(clozeMatches.length===0){
       // No cloze at all — whole front text is one fragment
-      return [front.trim()].filter(f=>f.split(/\s+/).length>=5);
+      const words=front.trim().split(/\s+/).filter(w=>w).length;
+      return words>=4?[front.trim()]:[];
     }
 
-    // Build a version of the text with cloze spans replaced by a marker,
-    // then expand the marker to consume whole adjacent word characters
-    // (so "in{{c1::creases}}" removes "in" too, not just the cloze span)
     const wordCharPattern=/[A-Za-z0-9'-]/;
     const spans=[];
     for(const m of clozeMatches){
       let start=m.index;
       let end=m.index+m[0].length;
-      // Expand left over word characters
       while(start>0&&wordCharPattern.test(front[start-1])) start--;
-      // Expand right over word characters
       while(end<front.length&&wordCharPattern.test(front[end])) end++;
       spans.push([start,end]);
     }
-    // Merge overlapping spans
     spans.sort((a,b)=>a[0]-b[0]);
     const merged=[];
     for(const [s,e] of spans){
       if(merged.length&&s<=merged[merged.length-1][1]) merged[merged.length-1][1]=Math.max(merged[merged.length-1][1],e);
       else merged.push([s,e]);
     }
-    // Extract fragments BETWEEN the merged spans
     const fragments=[];
     let pos=0;
     for(const [s,e] of merged){
@@ -997,12 +987,21 @@ When in doubt, include the card — it is better to include a borderline card th
     const lastFrag=front.substring(pos).trim();
     if(lastFrag) fragments.push(lastFrag);
 
-    // Clean fragments: strip leading/trailing punctuation, collapse whitespace
     const cleaned=fragments
       .map(f=>f.replace(/\s+/g,' ').replace(/^[^\w]+|[^\w]+$/g,'').trim())
-      .filter(f=>f.split(/\s+/).filter(w=>w).length>=5); // require 5+ words
+      .filter(f=>f.length>0);
 
+    // Gate: card must have at least one fragment with 4+ words to be searchable
+    const hasLongEnough=cleaned.some(f=>f.split(/\s+/).filter(w=>w).length>=4);
+    if(!hasLongEnough) return []; // goes to manual tagging
+
+    // If gate passes, include ALL non-empty fragments (even short ones add specificity)
     return cleaned;
+  }
+
+  function cleanForDisplay(front){
+    // Remove all cloze syntax for human-readable display, keeping answer text
+    return front.replace(/\{\{c\d+::(.*?)(?:::.*?)?\}\}/g,'$1').replace(/\s+/g,' ').trim();
   }
 
   async function exportResults(){
@@ -1019,7 +1018,7 @@ When in doubt, include the card — it is better to include a borderline card th
       if(!card||!card.front) return;
       const fragments=extractSearchFragments(card.front);
       if(fragments.length===0){
-        needsManualCards.push(card.front);
+        needsManualCards.push(cleanForDisplay(card.front));
       } else {
         const quoted=fragments.map(f=>`"${f}"`).join(' ');
         searchableCards.push(quoted);
